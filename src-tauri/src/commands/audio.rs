@@ -1,10 +1,9 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 use tauri::{command, AppHandle, State};
 
 use crate::{
-    app::AppState,
     audio::{devices::AudioDevices, AudioDevice},
-    utils::paths::get_temp_recording_path,
+    core::{app::AppState, utils::audio::get_recordings_path},
 };
 
 #[command]
@@ -12,20 +11,24 @@ pub async fn start_recording(
     app_handle: AppHandle,
     state: State<'_, Arc<AppState>>,
 ) -> Result<(), String> {
-    let output_path = get_temp_recording_path();
     state
         .audio
         .recorder
-        .start_recording(&app_handle, output_path)
+        .start_recording(&app_handle)
+        .await
         .map_err(|e| e.to_string())
 }
 
 #[command]
-pub async fn stop_recording(state: State<'_, Arc<AppState>>) -> Result<(), String> {
+pub async fn stop_recording(
+    state: State<'_, Arc<AppState>>,
+    output_path: PathBuf,
+) -> Result<(), String> {
     state
         .audio
         .recorder
-        .stop_recording()
+        .stop_recording(output_path)
+        .await
         .map_err(|e| e.to_string())
 }
 
@@ -72,8 +75,11 @@ pub async fn set_default_device(
 }
 
 #[command]
-pub async fn transcribe(state: State<'_, Arc<AppState>>) -> Result<String, String> {
-    let audio_path = get_temp_recording_path();
+pub async fn transcribe(
+    app_handle: AppHandle,
+    state: State<'_, Arc<AppState>>,
+) -> Result<String, String> {
+    let audio_path = get_recordings_path(&app_handle).join("rune_recording.wav");
 
     if !audio_path.exists() {
         return Err("No recording found to transcribe".to_string());
@@ -89,9 +95,9 @@ pub async fn transcribe(state: State<'_, Arc<AppState>>) -> Result<String, Strin
         .transcribe(audio_path.clone())
         .map_err(|e| e.to_string())?;
 
-    if let Err(e) = std::fs::remove_file(&audio_path) {
-        log::warn!("Failed to remove temporary audio file: {}", e);
-    }
+    // if let Err(e) = std::fs::remove_file(&audio_path) {
+    //     log::warn!("Failed to remove temporary audio file: {}", e);
+    // }
 
     Ok(result.join(" "))
 }

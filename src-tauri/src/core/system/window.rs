@@ -1,7 +1,7 @@
 use cocoa::appkit::NSWindowTitleVisibility;
 use tauri::WebviewWindow;
 
-use crate::error::SystemError;
+use crate::core::error::SystemError;
 
 pub struct WindowStyler {}
 

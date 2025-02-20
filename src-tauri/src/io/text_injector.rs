@@ -1,5 +1,6 @@
-use crate::error::{AppError, SystemError};
 use enigo::{Enigo, Keyboard, Settings};
+
+use crate::core::error::{AppError, SystemError};
 
 pub struct TextInjector {
     enigo: Enigo,

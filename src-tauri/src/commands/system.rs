@@ -1,6 +1,6 @@
 use std::{str::FromStr, sync::Arc};
 
-use crate::{config::Settings, system::permissions};
+use crate::core::{app::AppState, config::Settings, system::permissions};
 use tauri::{command, AppHandle};
 use tauri_plugin_global_shortcut::{Code, Modifiers};
 
@@ -34,7 +34,7 @@ pub async fn get_settings(app_handle: AppHandle) -> Result<Settings, String> {
 pub async fn update_shortcuts(
     key: String,
     modifier: String,
-    state: tauri::State<'_, Arc<crate::app::AppState>>,
+    state: tauri::State<'_, Arc<AppState>>,
     app_handle: AppHandle,
 ) -> Result<(), String> {
     let _parsed_modifier = Modifiers::from_name(&modifier)

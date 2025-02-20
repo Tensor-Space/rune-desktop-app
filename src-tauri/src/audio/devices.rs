@@ -1,6 +1,7 @@
-use crate::error::AudioError;
 use cpal::traits::{DeviceTrait, HostTrait};
 use serde::{Deserialize, Serialize};
+
+use crate::core::error::AudioError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AudioDevice {

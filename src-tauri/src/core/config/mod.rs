@@ -1,4 +1,4 @@
-use crate::error::ConfigError;
+use crate::core::error::ConfigError;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::AppHandle;

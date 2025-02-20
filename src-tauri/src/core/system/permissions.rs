@@ -1,4 +1,4 @@
-use crate::error::SystemError;
+use crate::core::error::SystemError;
 
 pub fn check_accessibility_permissions() -> Result<bool, SystemError> {
     #[cfg(target_os = "macos")]

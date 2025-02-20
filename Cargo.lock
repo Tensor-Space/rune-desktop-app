@@ -4835,6 +4835,7 @@ dependencies = [
  "cocoa 0.25.0",
  "core-foundation 0.10.0",
  "cpal",
+ "crossbeam-channel",
  "enigo",
  "env_logger",
  "hound",
@@ -4860,6 +4861,10 @@ dependencies = [
  "tokio",
  "wav",
 ]
+
+[[package]]
+name = "rune_llm"
+version = "0.1.0"
 
 [[package]]
 name = "rune_whisper"

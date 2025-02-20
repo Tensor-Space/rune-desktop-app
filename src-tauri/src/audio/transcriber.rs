@@ -1,4 +1,4 @@
-use crate::error::AudioError;
+use crate::core::error::AudioError;
 use rune_whisper::{Whisper as WhisperModel, WhisperConfig};
 
 pub struct AudioTranscriber {

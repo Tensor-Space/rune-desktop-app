@@ -1,8 +1,10 @@
 mod state;
 
 use crate::{
-    audio::AudioState, commands, config::Settings, error::AppError,
-    input::shortcuts::ShortcutManager, system::window::WindowStyler,
+    audio::AudioState,
+    commands,
+    core::{config::Settings, error::AppError, system::window::WindowStyler},
+    io::shortcuts::ShortcutManager,
 };
 pub use state::AppState;
 use std::sync::Arc;
@@ -70,7 +72,6 @@ impl App {
             .store(SETTINGS_FILE)
             .map_err(|e| AppError::Config(format!("Failed to create store: {}", e).into()))?;
 
-        // store.clear();
         // Load settings from store or use defaults
         let settings = if let Some(stored_settings) = store.get("settings") {
             serde_json::from_value(stored_settings)

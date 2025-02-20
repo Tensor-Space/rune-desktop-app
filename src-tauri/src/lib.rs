@@ -1,16 +1,12 @@
-mod app;
-mod audio;
-mod commands;
-mod config;
-mod error;
-mod input;
-mod system;
-mod utils;
+use core::{app::App, error::AppError};
 
-pub use app::App;
-pub use error::AppError;
+pub mod audio;
+pub mod commands;
+pub mod io;
 
-pub type Result<T> = std::result::Result<T, crate::error::AppError>;
+pub mod core;
+
+pub type Result<T> = std::result::Result<T, AppError>;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() -> Result<()> {

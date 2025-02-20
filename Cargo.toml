@@ -1,4 +1,4 @@
 
 [workspace]
 resolver = "2"
-members = ["src-tauri", "libs/rune_whisper"]
+members = ["src-tauri", "libs/rune_whisper", "libs/rune_llm"]

@@ -1,4 +1,4 @@
-use crate::{audio::AudioState, config::Settings};
+use crate::{audio::AudioState, core::config::Settings};
 use parking_lot::RwLock;
 use std::sync::Arc;
 
