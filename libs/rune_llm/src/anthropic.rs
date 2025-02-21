@@ -5,14 +5,16 @@ use serde_json::{json, Value};
 
 use crate::LLMService;
 
-pub struct OllamaService {
+pub struct AnthropicService {
     client: Client,
+    api_key: String,
 }
 
-impl OllamaService {
-    pub fn new() -> Self {
+impl AnthropicService {
+    pub fn new(api_key: String) -> Self {
         Self {
             client: Client::new(),
+            api_key,
         }
     }
 
@@ -33,7 +35,7 @@ impl OllamaService {
 }
 
 #[async_trait]
-impl LLMService for OllamaService {
+impl LLMService for AnthropicService {
     async fn execute_prompt(&self, prompt: &str, schema: Option<&str>) -> Result<Value> {
         let mut full_prompt = prompt.to_string();
         if let Some(schema_str) = schema {
@@ -45,24 +47,31 @@ impl LLMService for OllamaService {
 
         let response = self
             .client
-            .post("http://localhost:11434/api/generate")
+            .post("https://api.anthropic.com/v1/messages")
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", "2023-06-01")
             .json(&json!({
-                "model": "llama2",
-                "prompt": full_prompt,
-                "stream": false
+                "model": "claude-3-opus-20240229",
+                "max_tokens": 1024,
+                "messages": [{
+                    "role": "user",
+                    "content": full_prompt
+                }]
             }))
             .send()
             .await
-            .context("Failed to send request to Ollama API")?;
+            .context("Failed to send request to Anthropic API")?;
 
         let result: Value = response
             .json()
             .await
-            .context("Failed to parse Ollama response")?;
+            .context("Failed to parse Anthropic response")?;
 
-        let content = result["response"]
-            .as_str()
-            .context("Invalid response format from Ollama")?;
+        let content = result["content"]
+            .as_array()
+            .and_then(|arr| arr.first())
+            .and_then(|msg| msg["text"].as_str())
+            .context("Invalid response format from Anthropic")?;
 
         let parsed_content: Value =
             serde_json::from_str(content).context("Failed to parse response as JSON")?;
