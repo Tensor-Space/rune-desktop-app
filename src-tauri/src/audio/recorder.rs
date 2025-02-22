@@ -14,7 +14,6 @@ use std::{
 use tauri::{AppHandle, Emitter};
 
 const TARGET_SAMPLE_RATE: u32 = 16000;
-const SOURCE_SAMPLE_RATE: u32 = 44100;
 const LEVEL_UPDATE_INTERVAL: Duration = Duration::from_millis(50);
 const DEFAULT_CHUNK_SIZE: usize = 4096;
 const MIN_CHUNK_SIZE: usize = 1024;
@@ -75,6 +74,7 @@ struct RecorderState {
     stream: Option<Stream>,
     device_id: Option<String>,
     audio_data: Arc<Mutex<AudioData>>,
+    current_sample_rate: Arc<Mutex<u32>>,
 }
 
 pub struct AudioRecorder {
@@ -194,6 +194,28 @@ impl AudioRecorder {
 
     pub async fn start_recording(&self, app_handle: &AppHandle) -> Result<(), AudioError> {
         flush_println("=== Starting Recording Process ===");
+
+        // Clean up any existing resources first
+        {
+            let mut state = self.state.lock();
+            if let Some(stream) = state.stream.take() {
+                flush_println("Cleaning up previous audio stream");
+                if let Err(e) = stream.pause() {
+                    flush_println(&format!("Warning: Failed to pause stream: {}", e));
+                }
+                drop(stream);
+            }
+
+            if let Some(sender) = self.audio_sender.lock().take() {
+                flush_println("Cleaning up previous audio channel");
+                drop(sender);
+            }
+
+            self.recording_active
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
         self.set_app_handle(app_handle.clone());
 
         let state = self.state.lock();
@@ -217,46 +239,35 @@ impl AudioRecorder {
             .supported_input_configs()
             .map_err(|e| AudioError::Device(format!("Error getting supported configs: {}", e)))?;
 
+        // Convert to Vec for multiple iterations
+        let supported_configs_vec: Vec<_> = supported_configs.collect();
+
         // Log all supported configurations
-        let mut supported_configs_vec = Vec::new();
-        for config in supported_configs {
-            supported_configs_vec.push(config);
-        }
         flush_println("\nSupported configurations:");
         for (i, config) in supported_configs_vec.iter().enumerate() {
             flush_println(&format!("Config {}: {:?}", i, config));
         }
 
-        // Find a suitable configuration - record at 44.1kHz for quality
+        // Find a suitable configuration - use device's native rate
         let config = supported_configs_vec
             .iter()
-            .find(|config| {
-                let suitable = config.sample_format() == cpal::SampleFormat::F32
-                    && config.channels() >= 1
-                    && config.min_sample_rate().0 <= SOURCE_SAMPLE_RATE
-                    && config.max_sample_rate().0 >= SOURCE_SAMPLE_RATE;
+            .find(|config| config.sample_format() == cpal::SampleFormat::F32)
+            .ok_or_else(|| {
+                AudioError::Device("No suitable audio configuration found".to_string())
+            })?;
 
-                flush_println(&format!(
-                    "Testing config: {:?}\nFormat match: {}, Channels suitable: {}, Rate suitable: {}",
-                    config,
-                    config.sample_format() == cpal::SampleFormat::F32,
-                    config.channels() >= 1,
-                    config.min_sample_rate().0 <= SOURCE_SAMPLE_RATE && config.max_sample_rate().0 >= SOURCE_SAMPLE_RATE
-                ));
+        let native_sample_rate = config.min_sample_rate().0;
+        {
+            let state = self.state.lock();
+            *state.current_sample_rate.lock() = native_sample_rate;
+        }
 
-                suitable
-            })
-            .ok_or_else(|| AudioError::Device("No suitable audio configuration found".to_string()))?;
+        let config = config.with_sample_rate(cpal::SampleRate(native_sample_rate));
 
-        // Use the config as is - don't force mono
-        let config: cpal::SupportedStreamConfigRange = config.clone();
-        let config = config.with_sample_rate(cpal::SampleRate(SOURCE_SAMPLE_RATE));
-        let stream_config: cpal::StreamConfig = config.clone().into();
-
-        let num_channels = stream_config.channels as usize;
+        let num_channels = config.channels() as usize;
         flush_println(&format!(
             "Using {} channels at {} Hz",
-            num_channels, SOURCE_SAMPLE_RATE
+            num_channels, native_sample_rate
         ));
 
         let chunk_size = DEFAULT_CHUNK_SIZE * num_channels;
@@ -271,7 +282,6 @@ impl AudioRecorder {
         drop(state);
 
         let last_level_update_arc = Arc::clone(&self.last_level_update);
-
         self.recording_active
             .store(true, std::sync::atomic::Ordering::SeqCst);
         let recording_active = Arc::clone(&self.recording_active);
@@ -283,11 +293,11 @@ impl AudioRecorder {
                     Ok(pcm) => {
                         let mut audio_data = audio_data.lock();
                         if !audio_data.recording {
-                            break;
+                            continue;
                         }
 
                         // Mix stereo to mono if needed
-                        let mono_samples: Vec<f32> = if num_channels == 2 {
+                        let mono_samples: Vec<f32> = if pcm.len() % 2 == 0 && num_channels == 2 {
                             pcm.chunks(2)
                                 .map(|chunk| (chunk[0] + chunk[1]) * 0.5)
                                 .collect()
@@ -295,6 +305,7 @@ impl AudioRecorder {
                             pcm
                         };
 
+                        // Calculate levels for visualization (8 frequency bands)
                         let levels: Vec<f32> = if !mono_samples.is_empty() {
                             let chunk_size = mono_samples.len() / 8;
                             (0..8)
@@ -312,27 +323,29 @@ impl AudioRecorder {
                             vec![0.0; 8]
                         };
 
+                        // Store the audio data
+                        audio_data.store_samples(&mono_samples);
+
                         // Emit audio levels for UI feedback
                         if let Some(handle) = audio_data.app_handle.as_ref() {
                             let now = Instant::now();
                             let mut last_update = last_level_update_arc.lock();
                             if now.duration_since(*last_update) >= LEVEL_UPDATE_INTERVAL {
-                                match handle.emit("audio-levels", levels) {
-                                    Ok(_) => {}
-                                    Err(e) => flush_println(&format!(
-                                        "Failed to emit audio levels: {}",
-                                        e
-                                    )),
+                                if let Err(e) = handle.emit("audio-levels", levels) {
+                                    flush_println(&format!("Failed to emit audio levels: {}", e));
                                 }
                                 *last_update = now;
                             }
                         }
-
-                        // Store the audio data
-                        audio_data.store_samples(&mono_samples);
                     }
                     Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
-                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+                    Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
+                        if recording_active.load(std::sync::atomic::Ordering::SeqCst) {
+                            flush_println("Channel disconnected but recording still active");
+                            continue;
+                        }
+                        break;
+                    }
                 }
             }
 
@@ -354,14 +367,8 @@ impl AudioRecorder {
                 return;
             }
 
-            // Copy the data directly since we're using mono
             let pcm = data.to_vec();
-
-            if let Err(e) = sender.send(pcm) {
-                if recording_active_clone.load(std::sync::atomic::Ordering::SeqCst) {
-                    flush_println(&format!("Failed to send audio data: {}", e));
-                }
-            }
+            let _ = sender.send(pcm);
         };
 
         let error_callback = move |err| {
@@ -369,7 +376,7 @@ impl AudioRecorder {
         };
 
         let stream = device
-            .build_input_stream(&stream_config, data_callback, error_callback, None)
+            .build_input_stream(&config.into(), data_callback, error_callback, None)
             .map_err(|e| {
                 flush_println(&format!("Failed to build input stream: {}", e));
                 AudioError::Recording(format!("Failed to build input stream: {}", e))
@@ -389,15 +396,11 @@ impl AudioRecorder {
     pub async fn stop_recording(&self, output_path: std::path::PathBuf) -> Result<(), AudioError> {
         flush_println("=== Stopping Recording ===");
 
-        // First, stop accepting new audio data
+        // First, signal the processing thread to stop
         self.recording_active
             .store(false, std::sync::atomic::Ordering::SeqCst);
 
-        // Wait for processing thread to finish with current data
-        flush_println("Waiting for audio processing to complete...");
-        std::thread::sleep(std::time::Duration::from_millis(200));
-
-        // Now stop the recording state and cleanup
+        // Stop recording state in audio data
         {
             let state = self.state.lock();
             let mut audio_data = state.audio_data.lock();
@@ -407,32 +410,43 @@ impl AudioRecorder {
             audio_data.recording = false;
         }
 
-        // Stop and cleanup the audio stream
-        {
+        // Drop the audio stream to stop receiving new data
+        let native_sample_rate = {
             let mut state = self.state.lock();
+            let sample_rate = *state.current_sample_rate.lock();
             if let Some(stream) = state.stream.take() {
                 flush_println("Stopping audio stream");
-                drop(stream);
+                if let Err(e) = stream.pause() {
+                    flush_println(&format!("Warning: Failed to pause stream: {}", e));
+                }
+            }
+            sample_rate
+        };
+
+        // Clean up the channel
+        {
+            if let Some(sender) = self.audio_sender.lock().take() {
+                flush_println("Cleaning up audio channel");
+                drop(sender);
             }
         }
 
-        // Finally cleanup the channel
-        if let Some(sender) = self.audio_sender.lock().take() {
-            flush_println("Cleaning up audio channel");
-            drop(sender);
-        }
+        // Wait a bit longer to ensure complete cleanup
+        std::thread::sleep(std::time::Duration::from_millis(200));
 
-        // Give time for final cleanup
-        std::thread::sleep(std::time::Duration::from_millis(100));
-
+        // Get the buffers and process them
         let state = self.state.lock();
         let mut audio_data = state.audio_data.lock();
+        audio_data.finalize();
+
         let buffers = std::mem::take(&mut audio_data.buffers);
+        drop(audio_data);
+        drop(state);
 
         flush_println(&format!(
             "Stop recording - Buffers: {}, Sample rate: {}",
             buffers.len(),
-            SOURCE_SAMPLE_RATE
+            native_sample_rate
         ));
 
         if buffers.is_empty() {
@@ -441,9 +455,6 @@ impl AudioRecorder {
 
         let total_samples = buffers.iter().map(|b| b.len()).sum::<usize>();
         flush_println(&format!("Total samples recorded: {}", total_samples));
-
-        drop(audio_data);
-        drop(state);
 
         // Create WAV file with target 16kHz sample rate
         let spec = hound::WavSpec {
@@ -457,20 +468,20 @@ impl AudioRecorder {
         let mut writer = hound::WavWriter::create(&output_path, spec)
             .map_err(|e| AudioError::Recording(format!("Failed to create WAV file: {}", e)))?;
 
-        // Configure resampler for 44.1kHz to 16kHz conversion
+        // Configure resampler for source rate to 16kHz conversion
         let resampler_chunk_size = 1024; // Smaller chunk size for better quality
         let mut resampler = FftFixedIn::<f32>::new(
-            SOURCE_SAMPLE_RATE as usize, // Source rate
-            TARGET_SAMPLE_RATE as usize, // Target rate
+            native_sample_rate as usize,
+            TARGET_SAMPLE_RATE as usize,
             resampler_chunk_size,
-            1, // Channels
+            1,
             1,
         )
         .map_err(|e| AudioError::Recording(format!("Failed to create resampler: {}", e)))?;
 
         flush_println(&format!(
             "Resampler configured - Input rate: {}, Output rate: {}, Chunk size: {}",
-            SOURCE_SAMPLE_RATE, TARGET_SAMPLE_RATE, resampler_chunk_size
+            native_sample_rate, TARGET_SAMPLE_RATE, resampler_chunk_size
         ));
 
         let mut total_written = 0;
@@ -541,8 +552,6 @@ impl AudioRecorder {
             total_written,
             output_path.display()
         ));
-
-        self.state.lock().stream = None;
 
         Ok(())
     }
