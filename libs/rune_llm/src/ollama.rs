@@ -34,7 +34,12 @@ impl OllamaService {
 
 #[async_trait]
 impl LLMService for OllamaService {
-    async fn execute_prompt(&self, prompt: &str, schema: Option<&str>) -> Result<Value> {
+    async fn execute_prompt(
+        &self,
+        prompt: &str,
+        _schema_name: &str,
+        schema: Option<&str>,
+    ) -> Result<Value> {
         let mut full_prompt = prompt.to_string();
         if let Some(schema_str) = schema {
             full_prompt = format!(

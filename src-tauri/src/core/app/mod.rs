@@ -1,7 +1,6 @@
 mod state;
 
 use crate::{
-    audio::AudioState,
     commands,
     core::{config::Settings, error::AppError, system::window::WindowStyler},
     io::shortcuts::ShortcutManager,
@@ -24,9 +23,8 @@ pub struct App {
 impl App {
     pub fn new() -> Result<Self, AppError> {
         let settings = Settings::default();
-        let audio_state = Arc::new(AudioState::new());
 
-        let state = Arc::new(AppState::new(settings, Arc::clone(&audio_state)));
+        let state = Arc::new(AppState::new(settings));
 
         Ok(Self { state })
     }
@@ -41,18 +39,16 @@ impl App {
             .plugin(tauri_plugin_opener::init())
             .invoke_handler(tauri::generate_handler![
                 // Audio commands
-                commands::audio::start_recording,
-                commands::audio::stop_recording,
-                commands::audio::get_devices,
-                commands::audio::set_default_device,
-                commands::audio::transcribe,
-                commands::audio::get_default_device,
+                commands::audio_commands::get_devices,
+                commands::audio_commands::set_default_device,
+                commands::audio_commands::transcribe,
+                commands::audio_commands::get_default_device,
                 // System commands
-                commands::system::check_accessibility_permissions,
-                commands::system::request_accessibility_permissions,
-                commands::system::set_window_visibility,
-                commands::system::get_settings,
-                commands::system::update_shortcuts,
+                commands::system_commands::check_accessibility_permissions,
+                commands::system_commands::request_accessibility_permissions,
+                commands::system_commands::set_window_visibility,
+                commands::system_commands::get_settings,
+                commands::system_commands::update_shortcuts,
             ])
             .setup(move |app| {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
@@ -128,12 +124,12 @@ impl App {
         let shortcut_manager = ShortcutManager::new(Arc::clone(&self.state));
         shortcut_manager.register_shortcuts(app)?;
 
-        let settings_item = MenuItem::with_id(app, "settings", "Settings", true, None::<&str>)
+        let settings_item = MenuItem::with_id(app, "settings", "Rune Settings", true, None::<&str>)
             .map_err(|e| {
                 AppError::Config(format!("Failed to create settings menu item: {}", e).into())
             })?;
         let quit_item =
-            MenuItem::with_id(app, "quit", "Quit", true, None::<&str>).map_err(|e| {
+            MenuItem::with_id(app, "quit", "Quit App", true, None::<&str>).map_err(|e| {
                 AppError::Config(format!("Failed to create quit menu item: {}", e).into())
             })?;
 

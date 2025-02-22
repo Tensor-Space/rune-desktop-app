@@ -27,12 +27,24 @@ function MainWindow() {
         setHasMicPermission(false);
       }
     };
-
     requestMic();
 
+    // Listen for audio levels
     const unlisten = listen("audio-levels", (event: any) => {
-      console.log("Received audio levels:", event.payload);
-      setLevels(event.payload as number[]);
+      const newLevels = event.payload as number[];
+      console.log("Received audio levels:", newLevels);
+
+      if (Array.isArray(newLevels) && newLevels.length === 8) {
+        // Apply some smoothing to prevent jarring transitions
+        setLevels((prevLevels) =>
+          newLevels.map((level, i) => {
+            const smoothingFactor = 0.7; // Adjust this value to change smoothing amount
+            return (
+              level * smoothingFactor + prevLevels[i] * (1 - smoothingFactor)
+            );
+          }),
+        );
+      }
     });
 
     const unlistenTranscriptionStatus = listen(
@@ -71,20 +83,26 @@ function MainWindow() {
         transcriptionStatus === "idle" && "border-transparent",
       )}
     >
-      {/* Main Content */}
       <main className="h-full w-full p-3">
-        <div className="flex h-full items-end justify-center gap-[4px]">
-          {levels.map((level, index) => (
-            <div
-              key={index}
-              className="w-[20px] rounded-t-lg transition-all duration-75 ease-out"
-              style={{
-                height: `${Math.max(5, level * 1000)}%`,
-                backgroundColor: `hsl(${level * 240}, 100%, 50%)`,
-                boxShadow: `0 0 20px hsl(${level * 240}, 100%, 50%)`,
-              }}
-            />
-          ))}
+        <div className="flex h-full items-end justify-center gap-1">
+          {levels.map((level, index) => {
+            // Calculate a color based on the level intensity
+            const intensity = Math.min(1, level * 2);
+            const hue = 200 + intensity * 60; // Range from blue to purple
+            const lightness = 40 + intensity * 20; // Brighter as level increases
+
+            return (
+              <div
+                key={index}
+                className="w-12 rounded-t-lg transition-all duration-75 ease-out"
+                style={{
+                  height: `${Math.max(2, Math.min(100, level * 1000))}%`,
+                  backgroundColor: `hsl(${hue}, 100%, ${lightness}%)`,
+                  boxShadow: `0 0 ${10 + intensity * 10}px hsl(${hue}, 100%, ${lightness}%)`,
+                }}
+              />
+            );
+          })}
         </div>
       </main>
     </div>

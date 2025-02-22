@@ -1,5 +1,5 @@
-pub mod audio;
-pub mod system;
+pub mod audio_commands;
+pub mod system_commands;
 
 use serde::{Deserialize, Serialize};
 

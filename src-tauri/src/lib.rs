@@ -2,6 +2,7 @@ use core::{app::App, error::AppError};
 
 pub mod audio;
 pub mod commands;
+pub mod handlers;
 pub mod io;
 
 pub mod core;

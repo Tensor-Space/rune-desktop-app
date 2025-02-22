@@ -70,3 +70,15 @@ pub enum ConfigError {
     #[error("Invalid configuration: {0}")]
     Invalid(String),
 }
+
+#[derive(Debug, Error)]
+pub enum AudioCommandError {
+    #[error("Recording error: {0}")]
+    RecordingError(String),
+    #[error("Device error: {0}")]
+    DeviceError(String),
+    #[error("Settings error: {0}")]
+    SettingsError(String),
+    #[error("Transcription error: {0}")]
+    TranscriptionError(String),
+}

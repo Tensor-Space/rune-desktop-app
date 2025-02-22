@@ -5091,6 +5091,7 @@ dependencies = [
  "objc-foundation",
  "parking_lot",
  "rubato 0.16.1",
+ "rune_llm",
  "rune_whisper",
  "security-framework 3.2.0",
  "serde",

@@ -17,7 +17,12 @@ pub enum LLMProvider {
 
 #[async_trait]
 pub trait LLMService {
-    async fn execute_prompt(&self, prompt: &str, schema: Option<&str>) -> Result<Value>;
+    async fn execute_prompt(
+        &self,
+        prompt: &str,
+        schema_name: &str,
+        schema: Option<&str>,
+    ) -> Result<Value>;
 }
 
 pub struct RetryConfig {
@@ -126,9 +131,18 @@ impl LLMClient {
         }
     }
 
-    pub async fn execute_prompt(&self, prompt: &str, schema: Option<&str>) -> Result<Value> {
-        self.execute_with_retry(|| async { self.service.execute_prompt(prompt, schema).await })
-            .await
+    pub async fn execute_prompt(
+        &self,
+        prompt: &str,
+        schema_name: &str,
+        schema: Option<&str>,
+    ) -> Result<Value> {
+        self.execute_with_retry(|| async {
+            self.service
+                .execute_prompt(prompt, schema_name, schema)
+                .await
+        })
+        .await
     }
 
     pub fn with_config(mut self, config: LLMClientConfig) -> Self {

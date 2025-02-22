@@ -3,7 +3,7 @@ use async_openai::{
     config::OpenAIConfig,
     types::{
         ChatCompletionRequestMessage, ChatCompletionRequestUserMessage,
-        CreateChatCompletionRequestArgs,
+        CreateChatCompletionRequestArgs, ResponseFormat, ResponseFormatJsonSchema,
     },
     Client,
 };
@@ -45,7 +45,12 @@ impl OpenAIService {
 
 #[async_trait]
 impl LLMService for OpenAIService {
-    async fn execute_prompt(&self, prompt: &str, schema: Option<&str>) -> Result<Value> {
+    async fn execute_prompt(
+        &self,
+        prompt: &str,
+        schema_name: &str,
+        schema: Option<&str>,
+    ) -> Result<Value> {
         let mut full_prompt = prompt.to_string();
         if let Some(schema_str) = schema {
             full_prompt = format!(
@@ -55,7 +60,15 @@ impl LLMService for OpenAIService {
         }
 
         let request = CreateChatCompletionRequestArgs::default()
-            .model("gpt-4")
+            .model("gpt-4o-mini")
+            .response_format(ResponseFormat::JsonSchema {
+                json_schema: ResponseFormatJsonSchema {
+                    name: schema_name.to_string(),
+                    schema: schema.map(|s| serde_json::from_str(s).unwrap()),
+                    description: None,
+                    strict: Some(true),
+                },
+            })
             .messages([ChatCompletionRequestMessage::User(
                 ChatCompletionRequestUserMessage {
                     content: full_prompt.into(),
