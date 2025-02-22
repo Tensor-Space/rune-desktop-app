@@ -4,6 +4,7 @@ pub mod audio;
 pub mod commands;
 pub mod handlers;
 pub mod io;
+pub mod prompts;
 
 pub mod core;
 

@@ -81,8 +81,10 @@ impl LLMService for OpenAIService {
 
         let response = timeout(Duration::from_secs(180), self.client.chat().create(request))
             .await
-            .context("Request timed out")?
-            .context("OpenAI API request failed")?;
+            .unwrap()
+            .unwrap();
+        // .context("Request timed out")?
+        // .context("OpenAI API request failed")?;
 
         let content = response
             .choices

@@ -64,7 +64,7 @@ impl LLMClient {
         api_key: String,
         org_id: Option<String>,
         config: Option<LLMClientConfig>,
-    ) -> Result<Self> {
+    ) -> Self {
         let service: Box<dyn LLMService + Send + Sync> = match provider {
             LLMProvider::OpenAI => Box::new(openai::OpenAIService::new(
                 api_key,
@@ -74,10 +74,10 @@ impl LLMClient {
             LLMProvider::Ollama => Box::new(ollama::OllamaService::new()),
         };
 
-        Ok(Self {
+        Self {
             service,
             config: config.unwrap_or_default(),
-        })
+        }
     }
 
     async fn execute_with_retry<F, Fut, T>(&self, operation: F) -> Result<T>
