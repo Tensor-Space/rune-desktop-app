@@ -27,7 +27,7 @@ dependencies:
     specifier: ^2.2.0
     version: 2.2.0
   '@tauri-apps/plugin-autostart':
-    specifier: ~2
+    specifier: ~2.2.0
     version: 2.2.0
   '@tauri-apps/plugin-fs':
     specifier: ~2

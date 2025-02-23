@@ -1,2 +1,3 @@
 pub mod permissions;
-pub mod window;
+pub mod shortcut_manager;
+pub mod window_styler;

@@ -1,6 +1,6 @@
-pub struct TextTransformer;
+pub struct TextTransformerPrompt;
 
-impl TextTransformer {
+impl TextTransformerPrompt {
     pub fn get_schema() -> &'static str {
         r#"{
             "type": "object",

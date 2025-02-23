@@ -75,7 +75,6 @@ impl Settings {
 
         println!("Loading settings from store...");
 
-        // Try to load existing settings
         if let Some(settings) = store.get("settings") {
             println!("Found existing settings: {:?}", settings);
             return serde_json::from_value(settings)
@@ -83,7 +82,6 @@ impl Settings {
         }
 
         println!("No existing settings found, creating defaults...");
-        // If no settings exist, create default and save
         let default_settings = Self::default();
         println!("Default settings: {:?}", default_settings);
 

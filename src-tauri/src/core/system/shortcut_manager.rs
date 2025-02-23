@@ -1,8 +1,8 @@
 use crate::{
     core::{app::AppState, error::AppError},
-    handlers::shortcut_handler,
+    handlers::recording_pipeline_handler::RecordingPipeline,
 };
-use std::{str::FromStr, sync::Arc};
+use std::{process::Command, str::FromStr, sync::Arc};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_global_shortcut::{
     Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutEvent, ShortcutState,
@@ -16,6 +16,14 @@ pub struct ShortcutManager {
 impl ShortcutManager {
     pub fn new(app_state: Arc<AppState>) -> Self {
         Self { app_state }
+    }
+
+    fn activate_app(app_name: &str) {
+        Command::new("osascript")
+            .arg("-e")
+            .arg(format!(r#"tell application "{}" to activate"#, app_name))
+            .output()
+            .ok();
     }
 
     pub fn register_shortcuts(&self, app: &tauri::App) -> Result<(), AppError> {
@@ -50,14 +58,14 @@ impl ShortcutManager {
             Shortcut::new(Some(parsed_modifier), parsed_key)
         };
 
-        // Create escape shortcut
         let escape_shortcut = Shortcut::new(None, Code::Escape);
 
-        let state = Arc::clone(&self.app_state);
         let previous_app = Arc::new(parking_lot::Mutex::new(None::<String>));
-        let previous_app_clone = Arc::clone(&previous_app);
+        let recording_pipeline = Arc::new(RecordingPipeline::new(
+            Arc::clone(&self.app_state),
+            handle.clone(),
+        ));
 
-        // Create Tokio runtime
         let rt = Runtime::new().unwrap();
 
         handle.plugin(
@@ -65,31 +73,20 @@ impl ShortcutManager {
                 .with_handler(
                     move |app_handle: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent| {
                         if shortcut == &record_shortcut {
-                            let window = app_handle.get_webview_window("main").unwrap();
-
                             match event.state {
                                 ShortcutState::Pressed => {
-                                    let _ = rt
-                                        .block_on(shortcut_handler::handle_record_press(
-                                            window,
-                                            Arc::clone(&state),
-                                            &previous_app_clone,
-                                            app_handle,
-                                        ))
-                                        .unwrap();
+                                    let _ = rt.block_on(recording_pipeline.start()).unwrap();
                                 }
                                 ShortcutState::Released => {
-                                    let _ = rt.block_on(shortcut_handler::handle_record_release(
-                                        window,
-                                        Arc::clone(&state),
-                                        Arc::clone(&previous_app_clone),
-                                        app_handle.clone(),
-                                    ));
+                                    let _ = rt.block_on(recording_pipeline.stop());
                                 }
                             }
                         } else if shortcut == &escape_shortcut {
                             if let Some(window) = app_handle.get_webview_window("main") {
-                                shortcut_handler::handle_escape(&window, &previous_app_clone);
+                                window.hide().unwrap();
+                                if let Some(app_name) = previous_app.lock().take() {
+                                    Self::activate_app(&app_name);
+                                }
                             }
                         }
                     },

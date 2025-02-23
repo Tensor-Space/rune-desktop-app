@@ -2,8 +2,8 @@ mod state;
 
 use crate::{
     commands,
-    core::{config::Settings, error::AppError, system::window::WindowStyler},
-    io::shortcuts::ShortcutManager,
+    core::{config::Settings, error::AppError, system::window_styler::WindowStyler},
+    handlers::recording_pipeline_handler::RecordingPipeline,
 };
 pub use state::AppState;
 use std::sync::Arc;
@@ -13,6 +13,9 @@ use tauri::{
     Manager, WebviewUrl, WebviewWindowBuilder,
 };
 use tauri_plugin_store::StoreExt;
+use tokio::runtime::Runtime;
+
+use super::system::shortcut_manager::ShortcutManager;
 
 const SETTINGS_FILE: &str = "settings.json";
 
@@ -37,6 +40,9 @@ impl App {
             .plugin(tauri_plugin_store::Builder::default().build())
             .plugin(tauri_plugin_fs::init())
             .plugin(tauri_plugin_opener::init())
+            .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {
+                println!("App already running, skipping creation of new instance");
+            }))
             .invoke_handler(tauri::generate_handler![
                 // Audio commands
                 commands::audio_commands::get_devices,
@@ -51,6 +57,27 @@ impl App {
                 commands::system_commands::update_shortcuts,
             ])
             .setup(move |app| {
+                #[cfg(desktop)]
+                {
+                    use tauri_plugin_autostart::MacosLauncher;
+                    use tauri_plugin_autostart::ManagerExt;
+
+                    app.handle()
+                        .plugin(tauri_plugin_autostart::init(
+                            MacosLauncher::LaunchAgent,
+                            Some(vec!["--flag1", "--flag2"]),
+                        ))
+                        .unwrap();
+
+                    let autostart_manager = app.autolaunch();
+                    let _ = autostart_manager.enable();
+                    println!(
+                        "registered for autostart? {}",
+                        autostart_manager.is_enabled().unwrap()
+                    );
+                    let _ = autostart_manager.disable();
+                }
+
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
                 self.setup_app(app)?;
 
@@ -63,17 +90,14 @@ impl App {
     }
 
     fn setup_app(&self, app: &tauri::App) -> Result<(), AppError> {
-        // Load or create settings store
         let store = app
             .store(SETTINGS_FILE)
             .map_err(|e| AppError::Config(format!("Failed to create store: {}", e).into()))?;
 
-        // Load settings from store or use defaults
         let settings = if let Some(stored_settings) = store.get("settings") {
             serde_json::from_value(stored_settings)
                 .map_err(|e| AppError::Config(format!("Failed to parse settings: {}", e).into()))?
         } else {
-            // If no settings exist, save defaults
             let default_settings = Settings::default();
             store.set("settings", serde_json::json!(default_settings.clone()));
             store.save().map_err(|e| {
@@ -82,22 +106,19 @@ impl App {
             default_settings
         };
 
-        // Update state with loaded settings
         {
             let mut state_settings = self.state.settings.write();
             *state_settings = settings.clone();
         }
 
-        // Create settings window
         let settings_win_builder =
             WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings".into()))
-                .title("Settings")
+                .title("Rune Settings")
                 .visible(false)
                 .inner_size(800.0, 1000.0);
 
         let _settings_window = settings_win_builder.build()?;
 
-        // Create main window using settings
         let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
             .title("Rune")
             .inner_size(200.0, 60.0)
@@ -107,7 +128,6 @@ impl App {
                     let scale_factor = monitor.scale_factor();
                     let monitor_size = monitor.size();
 
-                    // Convert to logical pixels
                     let logical_width = (monitor_size.width as f64 / scale_factor) - (200.0 + 20.0);
                     logical_width
                 },
@@ -120,10 +140,23 @@ impl App {
 
         let main_window = win_builder.build()?;
         WindowStyler::setup_window_style(main_window)?;
-        // Setup shortcuts using loaded settings
         let shortcut_manager = ShortcutManager::new(Arc::clone(&self.state));
         shortcut_manager.register_shortcuts(app)?;
-
+        let start_recording_item = MenuItem::with_id(
+            app,
+            "start_recording",
+            "Start Recording",
+            true,
+            None::<&str>,
+        )
+        .map_err(|e| {
+            AppError::Config(format!("Failed to create settings menu item: {}", e).into())
+        })?;
+        let stop_recording_item =
+            MenuItem::with_id(app, "stop_recording", "Stop Recording", true, None::<&str>)
+                .map_err(|e| {
+                    AppError::Config(format!("Failed to create settings menu item: {}", e).into())
+                })?;
         let settings_item = MenuItem::with_id(app, "settings", "Rune Settings", true, None::<&str>)
             .map_err(|e| {
                 AppError::Config(format!("Failed to create settings menu item: {}", e).into())
@@ -133,14 +166,45 @@ impl App {
                 AppError::Config(format!("Failed to create quit menu item: {}", e).into())
             })?;
 
-        let tray_menu = Menu::with_items(app, &[&settings_item, &quit_item])
-            .map_err(|e| AppError::Config(format!("Failed to create tray menu: {}", e).into()))?;
+        let tray_menu = Menu::with_items(
+            app,
+            &[
+                &start_recording_item,
+                &stop_recording_item,
+                &settings_item,
+                &quit_item,
+            ],
+        )
+        .map_err(|e| AppError::Config(format!("Failed to create tray menu: {}", e).into()))?;
+        let recording_pipeline =
+            RecordingPipeline::new(Arc::clone(&self.state), app.app_handle().clone());
+        let rt = Runtime::new().unwrap();
 
-        // Create tray icon
         let _tray = TrayIconBuilder::new()
             .icon(app.default_window_icon().unwrap().clone())
             .menu(&tray_menu)
             .on_menu_event(move |app, event| match event.id.as_ref() {
+                "start_recording" => {
+                    if let Ok(_) = rt.block_on(recording_pipeline.start()) {
+                        if let Some(tray_handle) = app.tray_by_id("start_recording") {
+                            let _ = tray_handle.set_visible(false);
+                        }
+
+                        if let Some(tray_handle) = app.tray_by_id("stop_recording") {
+                            let _ = tray_handle.set_visible(true);
+                        }
+                    }
+                }
+                "stop_recording" => {
+                    rt.block_on(recording_pipeline.stop());
+                    if let Some(tray_handle) = app.tray_by_id("start_recording") {
+                        let _ = tray_handle.set_visible(true);
+                    }
+
+                    if let Some(tray_handle) = app.tray_by_id("stop_recording") {
+                        let _ = tray_handle.set_visible(false);
+                    }
+                }
                 "settings" => {
                     if let Some(settings_window) = app.get_webview_window("settings") {
                         let _ = settings_window.show();
@@ -155,6 +219,11 @@ impl App {
             .build(app)
             .map_err(|e| AppError::Config(format!("Failed to create tray icon: {}", e).into()))?;
 
+        if let Some(tray_handle) = app.tray_by_id("stop_recording") {
+            let _ = tray_handle.set_visible(false);
+        } else {
+            print!("Stop Recording not found")
+        }
         Ok(())
     }
 }

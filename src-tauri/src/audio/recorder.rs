@@ -120,13 +120,11 @@ impl AudioRecorder {
         let host = cpal::default_host();
         let state = self.state.lock();
 
-        // List all available devices with additional details
         flush_println("\nAvailable audio devices:");
         let mut found_devices = Vec::new();
         if let Ok(devices) = host.devices() {
             for device in devices {
                 if let Ok(name) = device.name() {
-                    // Get supported input configs for the device
                     let supported_configs = device.supported_input_configs().map_err(|e| {
                         AudioError::Device(format!("Error getting configs for {}: {}", name, e))
                     })?;
@@ -195,7 +193,6 @@ impl AudioRecorder {
     pub async fn start_recording(&self, app_handle: &AppHandle) -> Result<(), AudioError> {
         flush_println("=== Starting Recording Process ===");
 
-        // Clean up any existing resources first
         {
             let mut state = self.state.lock();
             if let Some(stream) = state.stream.take() {
@@ -234,21 +231,17 @@ impl AudioRecorder {
 
         let device = self.get_input_device().await?;
 
-        // Get supported configurations
         let supported_configs = device
             .supported_input_configs()
             .map_err(|e| AudioError::Device(format!("Error getting supported configs: {}", e)))?;
 
-        // Convert to Vec for multiple iterations
         let supported_configs_vec: Vec<_> = supported_configs.collect();
 
-        // Log all supported configurations
         flush_println("\nSupported configurations:");
         for (i, config) in supported_configs_vec.iter().enumerate() {
             flush_println(&format!("Config {}: {:?}", i, config));
         }
 
-        // Find a suitable configuration - use device's native rate
         let config = supported_configs_vec
             .iter()
             .find(|config| config.sample_format() == cpal::SampleFormat::F32)
@@ -286,7 +279,6 @@ impl AudioRecorder {
             .store(true, std::sync::atomic::Ordering::SeqCst);
         let recording_active = Arc::clone(&self.recording_active);
 
-        // Start processing thread
         std::thread::spawn(move || {
             while recording_active.load(std::sync::atomic::Ordering::SeqCst) {
                 match rx.recv_timeout(Duration::from_millis(100)) {
@@ -361,7 +353,6 @@ impl AudioRecorder {
         let sender = tx;
         let recording_active_clone = Arc::clone(&self.recording_active);
 
-        // Setup audio callback
         let data_callback = move |data: &[f32], _: &cpal::InputCallbackInfo| {
             if !recording_active_clone.load(std::sync::atomic::Ordering::SeqCst) {
                 return;
@@ -396,11 +387,9 @@ impl AudioRecorder {
     pub async fn stop_recording(&self, output_path: std::path::PathBuf) -> Result<(), AudioError> {
         flush_println("=== Stopping Recording ===");
 
-        // First, signal the processing thread to stop
         self.recording_active
             .store(false, std::sync::atomic::Ordering::SeqCst);
 
-        // Stop recording state in audio data
         {
             let state = self.state.lock();
             let mut audio_data = state.audio_data.lock();
@@ -410,7 +399,6 @@ impl AudioRecorder {
             audio_data.recording = false;
         }
 
-        // Drop the audio stream to stop receiving new data
         let native_sample_rate = {
             let mut state = self.state.lock();
             let sample_rate = *state.current_sample_rate.lock();
@@ -423,7 +411,6 @@ impl AudioRecorder {
             sample_rate
         };
 
-        // Clean up the channel
         {
             if let Some(sender) = self.audio_sender.lock().take() {
                 flush_println("Cleaning up audio channel");
@@ -431,10 +418,8 @@ impl AudioRecorder {
             }
         }
 
-        // Wait a bit longer to ensure complete cleanup
         std::thread::sleep(std::time::Duration::from_millis(200));
 
-        // Get the buffers and process them
         let state = self.state.lock();
         let mut audio_data = state.audio_data.lock();
         audio_data.finalize();
@@ -469,7 +454,7 @@ impl AudioRecorder {
             .map_err(|e| AudioError::Recording(format!("Failed to create WAV file: {}", e)))?;
 
         // Configure resampler for source rate to 16kHz conversion
-        let resampler_chunk_size = 1024; // Smaller chunk size for better quality
+        let resampler_chunk_size = 1024;
         let mut resampler = FftFixedIn::<f32>::new(
             native_sample_rate as usize,
             TARGET_SAMPLE_RATE as usize,
@@ -506,7 +491,6 @@ impl AudioRecorder {
                 if let Ok(mut output) = resampler.process(&[chunk], None) {
                     if let Some(samples) = output.pop() {
                         if !samples.is_empty() {
-                            // Simple peak normalization
                             let gain = if max_amplitude > 1.0 {
                                 0.95 / max_amplitude
                             } else {

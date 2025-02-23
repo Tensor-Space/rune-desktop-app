@@ -1,6 +1,6 @@
-pub struct TextTransformer;
+pub struct TextIntentDetectorPrompt;
 
-impl TextTransformer {
+impl TextIntentDetectorPrompt {
     pub fn get_schema() -> &'static str {
         r#"{
             "type": "object",

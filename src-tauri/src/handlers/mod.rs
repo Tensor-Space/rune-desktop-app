@@ -1,1 +1,1 @@
-pub mod shortcut_handler;
+pub mod recording_pipeline_handler;

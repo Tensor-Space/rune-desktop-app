@@ -1,6 +1,6 @@
-pub struct TextGenerator;
+pub struct TextGeneratorPrompt;
 
-impl TextGenerator {
+impl TextGeneratorPrompt {
     pub fn get_schema() -> &'static str {
         r#"{
             "type": "object",
