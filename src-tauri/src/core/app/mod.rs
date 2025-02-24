@@ -8,7 +8,7 @@ use crate::{
 pub use state::AppState;
 use std::sync::Arc;
 use tauri::{
-    menu::{Menu, MenuItem},
+    menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
     Manager, WebviewUrl, WebviewWindowBuilder,
 };
@@ -115,9 +115,11 @@ impl App {
             WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings".into()))
                 .title("Rune Settings")
                 .visible(false)
-                .inner_size(800.0, 1000.0);
+                .inner_size(1100.0, 800.0)
+                .hidden_title(true);
 
         let _settings_window = settings_win_builder.build()?;
+        // WindowStyler::remove_titlebar(settings_window)?;
 
         let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
             .title("Rune")
@@ -139,70 +141,36 @@ impl App {
             .decorations(true);
 
         let main_window = win_builder.build()?;
-        WindowStyler::setup_window_style(main_window)?;
+        WindowStyler::remove_titlebar_and_traffic_lights(main_window)?;
         let shortcut_manager = ShortcutManager::new(Arc::clone(&self.state));
         shortcut_manager.register_shortcuts(app)?;
-        let start_recording_item = MenuItem::with_id(
-            app,
-            "start_recording",
-            "Start Recording",
-            true,
-            None::<&str>,
-        )
-        .map_err(|e| {
-            AppError::Config(format!("Failed to create settings menu item: {}", e).into())
-        })?;
-        let stop_recording_item =
-            MenuItem::with_id(app, "stop_recording", "Stop Recording", true, None::<&str>)
-                .map_err(|e| {
-                    AppError::Config(format!("Failed to create settings menu item: {}", e).into())
-                })?;
-        let settings_item = MenuItem::with_id(app, "settings", "Rune Settings", true, None::<&str>)
-            .map_err(|e| {
-                AppError::Config(format!("Failed to create settings menu item: {}", e).into())
-            })?;
-        let quit_item =
-            MenuItem::with_id(app, "quit", "Quit App", true, None::<&str>).map_err(|e| {
-                AppError::Config(format!("Failed to create quit menu item: {}", e).into())
-            })?;
 
-        let tray_menu = Menu::with_items(
-            app,
-            &[
-                &start_recording_item,
-                &stop_recording_item,
-                &settings_item,
-                &quit_item,
-            ],
-        )
-        .map_err(|e| AppError::Config(format!("Failed to create tray menu: {}", e).into()))?;
+        let tray_menu = Self::build_tray_menu(&app.app_handle(), true, false)?;
+
         let recording_pipeline =
             RecordingPipeline::new(Arc::clone(&self.state), app.app_handle().clone());
         let rt = Runtime::new().unwrap();
-
-        let _tray = TrayIconBuilder::new()
+        let _tray = TrayIconBuilder::with_id("tray")
             .icon(app.default_window_icon().unwrap().clone())
             .menu(&tray_menu)
             .on_menu_event(move |app, event| match event.id.as_ref() {
                 "start_recording" => {
                     if let Ok(_) = rt.block_on(recording_pipeline.start()) {
-                        if let Some(tray_handle) = app.tray_by_id("start_recording") {
-                            let _ = tray_handle.set_visible(false);
-                        }
-
-                        if let Some(tray_handle) = app.tray_by_id("stop_recording") {
-                            let _ = tray_handle.set_visible(true);
+                        if let Some(tray) = app.tray_by_id("tray") {
+                            if let Ok(new_menu) = Self::build_tray_menu(app, false, true) {
+                                let _ = tray.set_menu(Some(new_menu.clone()));
+                                app.set_menu(new_menu).unwrap();
+                            }
                         }
                     }
                 }
                 "stop_recording" => {
                     rt.block_on(recording_pipeline.stop());
-                    if let Some(tray_handle) = app.tray_by_id("start_recording") {
-                        let _ = tray_handle.set_visible(true);
-                    }
-
-                    if let Some(tray_handle) = app.tray_by_id("stop_recording") {
-                        let _ = tray_handle.set_visible(false);
+                    if let Some(tray) = app.tray_by_id("tray") {
+                        if let Ok(new_menu) = Self::build_tray_menu(app, true, false) {
+                            let _ = tray.set_menu(Some(new_menu.clone())).unwrap();
+                            app.set_menu(new_menu).unwrap();
+                        }
                     }
                 }
                 "settings" => {
@@ -225,5 +193,50 @@ impl App {
             print!("Stop Recording not found")
         }
         Ok(())
+    }
+
+    fn build_tray_menu(
+        app: &tauri::AppHandle,
+        start_enabled: bool,
+        stop_enabled: bool,
+    ) -> Result<Menu<tauri::Wry>, AppError> {
+        let start_recording_item = MenuItem::with_id(
+            app,
+            "start_recording",
+            "Start Recording",
+            start_enabled,
+            None::<&str>,
+        )
+        .map_err(|e| AppError::Config(format!("Failed to create menu item: {}", e).into()))?;
+
+        let stop_recording_item = MenuItem::with_id(
+            app,
+            "stop_recording",
+            "Stop Recording",
+            stop_enabled,
+            None::<&str>,
+        )
+        .map_err(|e| AppError::Config(format!("Failed to create menu item: {}", e).into()))?;
+
+        let separator = PredefinedMenuItem::separator(app)
+            .map_err(|e| AppError::Config(format!("Failed to create separator: {}", e).into()))?;
+
+        let settings_item = MenuItem::with_id(app, "settings", "Rune Settings", true, None::<&str>)
+            .map_err(|e| AppError::Config(format!("Failed to create menu item: {}", e).into()))?;
+
+        let quit_item = MenuItem::with_id(app, "quit", "Quit App", true, None::<&str>)
+            .map_err(|e| AppError::Config(format!("Failed to create menu item: {}", e).into()))?;
+
+        Menu::with_items(
+            app,
+            &[
+                &start_recording_item,
+                &stop_recording_item,
+                &separator,
+                &settings_item,
+                &quit_item,
+            ],
+        )
+        .map_err(|e| AppError::Config(format!("Failed to create menu: {}", e).into()))
     }
 }

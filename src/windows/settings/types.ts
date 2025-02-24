@@ -2,6 +2,7 @@ export interface Settings {
   shortcuts: ShortcutConfig;
   audio: AudioConfig;
   window: WindowConfig;
+  ai: AIConfig;
 }
 
 export interface ShortcutConfig {
@@ -21,4 +22,9 @@ export interface WindowConfig {
 export interface AudioDevice {
   name: string;
   id: string;
+}
+
+export interface AIConfig {
+  model: string;
+  temperature: number;
 }

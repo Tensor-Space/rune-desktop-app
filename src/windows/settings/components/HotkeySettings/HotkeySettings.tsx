@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { HotkeyRecorder } from "./HotkeyRecorder";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import {
@@ -10,7 +9,8 @@ import {
   CardDescription,
   CardContent,
 } from "@/components/ui/card";
-import { Settings, ShortcutConfig } from "../types";
+import { Settings, ShortcutConfig } from "../../types";
+import { HotkeyRecorder } from "./HotkeyRecorder";
 
 export const HotkeySettings = () => {
   const [shortcuts, setShortcuts] = useState<ShortcutConfig>({
@@ -44,11 +44,11 @@ export const HotkeySettings = () => {
     try {
       const newShortcuts: ShortcutConfig = {
         record_key: key,
-        record_modifier: modifier || "", // Now just a string
+        record_modifier: modifier || "",
       };
 
       await invoke("update_shortcuts", {
-        modifier: newShortcuts.record_modifier, // Changed from modifiers
+        modifier: newShortcuts.record_modifier,
         key: newShortcuts.record_key,
       });
 
@@ -64,7 +64,7 @@ export const HotkeySettings = () => {
     try {
       await invoke("update_shortcuts", {
         key: "",
-        modifiers: "",
+        modifier: "",
       });
       setShortcuts({ record_key: "", record_modifier: "" });
       setError(null);
@@ -75,7 +75,7 @@ export const HotkeySettings = () => {
   };
 
   return (
-    <Card>
+    <Card className="bg-card">
       <CardHeader>
         <CardTitle>Keyboard Shortcuts</CardTitle>
         <CardDescription>

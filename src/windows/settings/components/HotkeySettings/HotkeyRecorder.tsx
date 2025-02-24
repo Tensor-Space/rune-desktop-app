@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { X } from "lucide-react";
-import { ShortcutConfig } from "../types";
+import { ShortcutConfig } from "../../types";
 
 interface HotkeyRecorderProps {
   onHotkeySet: (key: string, modifier?: string) => void;
@@ -10,9 +10,7 @@ interface HotkeyRecorderProps {
   shortcut: ShortcutConfig;
 }
 
-// Map JS key names to the format expected by the Rust backend
 const keyToCode = (key: string): string => {
-  // Handle special keys
   const specialKeys: Record<string, string> = {
     " ": "Space",
     ArrowUp: "ArrowUp",
@@ -30,22 +28,18 @@ const keyToCode = (key: string): string => {
     Tab: "Tab",
   };
 
-  // Check if it's a special key
   if (key in specialKeys) {
     return specialKeys[key];
   }
 
-  // Handle letter keys
   if (/^[A-Z]$/.test(key)) {
     return `Key${key}`;
   }
 
-  // Handle number keys
   if (/^[0-9]$/.test(key)) {
     return `Digit${key}`;
   }
 
-  // Handle F keys
   if (/^F\d+$/.test(key)) {
     return key.toUpperCase();
   }
@@ -53,13 +47,12 @@ const keyToCode = (key: string): string => {
   return key.toUpperCase();
 };
 
-// Map JS modifier keys to the format expected by the Rust backend
 const modifierToCode = (key: string): string => {
   const modifierMap: Record<string, string> = {
     Control: "CONTROL",
     Shift: "SHIFT",
     Alt: "ALT",
-    Meta: "SUPER", // Command on macOS, Windows key on Windows
+    Meta: "SUPER",
   };
 
   return modifierMap[key] || key.toUpperCase();
@@ -79,7 +72,6 @@ export const HotkeyRecorder = ({
       if (!isRecording) return;
       e.preventDefault();
 
-      // Only accept modifier keys for the modifier step
       if (recordingStep === "modifier") {
         if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) {
           const formattedModifier = modifierToCode(e.key);
@@ -87,11 +79,9 @@ export const HotkeyRecorder = ({
           setRecordingStep("key");
           onHotkeySet(tempKey, formattedModifier);
         }
-        // Ignore non-modifier keys in modifier step
         return;
       }
 
-      // Key recording step
       if (recordingStep === "key") {
         const formattedKey = keyToCode(e.key.toUpperCase());
         setTempKey(formattedKey);
@@ -135,6 +125,7 @@ export const HotkeyRecorder = ({
             setTempKey("");
           }}
           disabled={isRecording || Boolean(shortcut.record_key)}
+          className="bg-primary hover:bg-primary/90"
         >
           {isRecording
             ? `Press ${recordingStep === "key" ? "key" : "modifier"}...`
@@ -143,13 +134,18 @@ export const HotkeyRecorder = ({
       </div>
 
       {shortcut.record_key && (
-        <div className="flex items-center gap-2 bg-secondary p-2 rounded-md">
-          <Badge variant="secondary">{formatHotkeyDisplay(shortcut)}</Badge>
+        <div className="flex items-center gap-2 bg-accent/50 p-2 rounded-md">
+          <Badge
+            variant="secondary"
+            className="bg-accent text-accent-foreground"
+          >
+            {formatHotkeyDisplay(shortcut)}
+          </Badge>
           <Button
             variant="ghost"
             size="sm"
             onClick={onHotkeyRemove}
-            className="ml-auto"
+            className="ml-auto hover:bg-accent"
           >
             <X className="h-4 w-4" />
           </Button>

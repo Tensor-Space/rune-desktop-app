@@ -58,7 +58,7 @@ export const AudioSettings = () => {
   };
 
   return (
-    <Card>
+    <Card className="bg-card">
       <CardHeader>
         <CardTitle>Audio Input</CardTitle>
         <CardDescription>Select your preferred microphone</CardDescription>

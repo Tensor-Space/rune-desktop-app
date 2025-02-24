@@ -46,7 +46,7 @@ export const AccessibilitySettings = () => {
   };
 
   return (
-    <Card>
+    <Card className="bg-card">
       <CardHeader>
         <CardTitle>Accessibility Permissions</CardTitle>
         <CardDescription>

@@ -44,7 +44,7 @@ export const MicrophoneSettings = () => {
   };
 
   return (
-    <Card>
+    <Card className="bg-card">
       <CardHeader>
         <CardTitle>Microphone Permissions</CardTitle>
         <CardDescription>
@@ -70,7 +70,12 @@ export const MicrophoneSettings = () => {
                 Microphone access is required for voice recording
               </AlertDescription>
             </Alert>
-            <Button onClick={requestPermissions}>Grant Permissions</Button>
+            <Button
+              onClick={requestPermissions}
+              className="bg-primary hover:bg-primary/90"
+            >
+              Grant Permissions
+            </Button>
           </div>
         )}
       </CardContent>
