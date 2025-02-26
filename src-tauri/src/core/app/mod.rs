@@ -116,7 +116,7 @@ impl App {
             WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings".into()))
                 .title("Rune Settings")
                 .visible(false)
-                .inner_size(1100.0, 800.0)
+                .inner_size(800.0, 800.0)
                 .hidden_title(true);
 
         let _settings_window = settings_win_builder.build()?;

@@ -37,41 +37,41 @@
 }
 
 .dark {
-    /* Elegant black theme */
-    --background: hsl(0, 0%, 9%); /* Deep black */
+    /* Improved contrast dark theme */
+    --background: hsl(0, 0%, 7%); /* Darker background */
     --foreground: hsl(0, 0%, 98%); /* Off white */
 
-    --card: hsl(0, 0%, 11%); /* Slightly lighter than background */
+    --card: hsl(0, 0%, 12%); /* More contrast with background */
     --card-foreground: hsl(0, 0%, 98%);
 
-    --popover: hsl(0, 0%, 8%); /* Darker than background */
+    --popover: hsl(0, 0%, 10%); /* Distinctive from background */
     --popover-foreground: hsl(0, 0%, 98%);
 
-    --primary: hsl(0, 0%, 98%); /* White */
-    --primary-foreground: hsl(0, 0%, 9%);
+    --primary: hsl(0, 0%, 95%); /* Brighter white */
+    --primary-foreground: hsl(0, 0%, 7%);
 
-    --secondary: hsl(0, 0%, 13%); /* Subtle surface */
-    --secondary-foreground: hsl(0, 0%, 98%);
+    --secondary: hsl(0, 0%, 18%); /* More visible surface */
+    --secondary-foreground: hsl(0, 0%, 95%);
 
-    --muted: hsl(0, 0%, 13%);
-    --muted-foreground: hsl(0, 0%, 63%); /* Gray text */
+    --muted: hsl(0, 0%, 15%); /* More visible muted background */
+    --muted-foreground: hsl(0, 0%, 75%); /* Brighter gray text */
 
-    --accent: hsl(0, 0%, 20%); /* Subtle accent */
+    --accent: hsl(0, 0%, 25%); /* Higher contrast accent */
     --accent-foreground: hsl(0, 0%, 98%);
 
     --destructive: hsl(0, 84%, 60%); /* Red */
     --destructive-foreground: hsl(0, 0%, 98%);
 
-    --border: hsl(0, 0%, 15%); /* Subtle borders */
-    --input: hsl(0, 0%, 15%);
+    --border: hsl(0, 0%, 20%); /* More visible borders */
+    --input: hsl(0, 0%, 20%);
     --ring: hsl(0, 0%, 83%);
 
-    /* Monochromatic with subtle color for charts */
-    --chart-1: hsl(0, 0%, 85%); /* Light gray */
-    --chart-2: hsl(0, 0%, 75%); /* Gray */
-    --chart-3: hsl(0, 0%, 65%); /* Medium gray */
-    --chart-4: hsl(0, 0%, 55%); /* Dark gray */
-    --chart-5: hsl(0, 0%, 45%); /* Darker gray */
+    /* Better contrast for charts */
+    --chart-1: hsl(0, 0%, 95%); /* Almost white */
+    --chart-2: hsl(0, 0%, 75%); /* Light gray */
+    --chart-3: hsl(0, 0%, 55%); /* Medium gray */
+    --chart-4: hsl(0, 0%, 35%); /* Dark gray */
+    --chart-5: hsl(0, 0%, 25%); /* Very dark gray */
 }
 
 /* Rest of your CSS remains the same */

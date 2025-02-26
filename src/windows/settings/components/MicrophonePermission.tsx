@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { invoke } from "@tauri-apps/api/core";
 import {
   Card,
   CardHeader,
@@ -11,7 +10,13 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 
-export const MicrophoneSettings = () => {
+interface MicrophonePermissionProps {
+  onPermissionChange?: (permitted: boolean) => void;
+}
+
+export const MicrophonePermission = ({
+  onPermissionChange,
+}: MicrophonePermissionProps) => {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isChecking, setIsChecking] = useState<boolean>(true);
@@ -26,17 +31,37 @@ export const MicrophoneSettings = () => {
     setError(null);
 
     try {
-      // Use the Tauri command to check microphone permissions
-      const permitted: boolean = await invoke("check_microphone_permissions");
-      setHasPermission(permitted);
-
-      if (!permitted) {
-        setError("Microphone access is not granted");
+      // Check if the browser supports getUserMedia
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Browser doesn't support audio input");
       }
+
+      // Directly try to access the microphone instead of using permissions API
+      // This is more reliable across browsers, especially WebKit
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      // If we get here, permission is granted
+      setHasPermission(true);
+      onPermissionChange?.(true);
+
+      // Clean up
+      stream.getTracks().forEach((track) => track.stop());
     } catch (err) {
       console.error("Error checking microphone permissions:", err);
-      setError(`Failed to check microphone permissions: ${err}`);
+
+      // Check if this is a permission error
+      if (
+        err instanceof DOMException &&
+        (err.name === "NotAllowedError" || err.name === "PermissionDeniedError")
+      ) {
+        setError("Microphone access is blocked or denied");
+      } else {
+        setError(
+          `Failed to access microphone: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
       setHasPermission(false);
+      onPermissionChange?.(false);
     } finally {
       setIsChecking(false);
     }
@@ -47,18 +72,22 @@ export const MicrophoneSettings = () => {
     setError(null);
 
     try {
-      // Use the Tauri command to request microphone permissions
-      const granted: boolean = await invoke("request_microphone_permissions");
+      // Request microphone permission by attempting to access the microphone
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      setHasPermission(granted);
+      // If we got here, permission was granted
+      setHasPermission(true);
+      onPermissionChange?.(true);
 
-      if (!granted) {
-        setError("Microphone access was denied");
-      }
+      // Stop all audio tracks to clean up
+      stream.getTracks().forEach((track) => track.stop());
     } catch (err) {
       console.error("Error requesting microphone permissions:", err);
-      setError(`Failed to request microphone permissions: ${err}`);
+      setError(
+        `Microphone access was denied: ${err instanceof Error ? err.message : String(err)}`,
+      );
       setHasPermission(false);
+      onPermissionChange?.(false);
     } finally {
       setIsRequesting(false);
     }
@@ -101,11 +130,9 @@ export const MicrophoneSettings = () => {
             </Button>
           </div>
         ) : hasPermission ? (
-          <Alert className="bg-green-50 border-green-200">
+          <Alert>
             <CheckCircle2 className="h-5 w-5 text-green-500" />
-            <AlertDescription className="text-green-700 ml-2">
-              Microphone access is granted
-            </AlertDescription>
+            <AlertDescription>Microphone access is granted</AlertDescription>
           </Alert>
         ) : (
           <div className="space-y-4">

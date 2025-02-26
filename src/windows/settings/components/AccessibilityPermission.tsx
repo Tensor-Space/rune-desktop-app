@@ -11,7 +11,13 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle, CheckCircle2 } from "lucide-react";
 
-export const AccessibilitySettings = () => {
+interface AccessibilityPermissionProps {
+  onPermissionChange?: (permitted: boolean) => void;
+}
+
+export const AccessibilityPermission = ({
+  onPermissionChange,
+}: AccessibilityPermissionProps) => {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -25,6 +31,7 @@ export const AccessibilitySettings = () => {
         "check_accessibility_permissions",
       );
       setHasPermission(permitted);
+      onPermissionChange?.(permitted);
       setError(null);
     } catch (error) {
       setError("Failed to check accessibility permissions");
@@ -38,6 +45,7 @@ export const AccessibilitySettings = () => {
         "request_accessibility_permissions",
       );
       setHasPermission(granted);
+      onPermissionChange?.(granted);
       setError(null);
     } catch (error) {
       setError("Failed to request accessibility permissions");
