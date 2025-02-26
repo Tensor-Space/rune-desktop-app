@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Rune",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "identifier": "com.rune.app",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -18,10 +18,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "resources": ["models/**/*"],
     "macOS": {
-      "providerShortName": "Rune",
-      "signingIdentity": "4T3ZXB8C4V",
-      "entitlements": "Entitlements.plist"
+      "providerShortName": "4T3ZXB8C4V",
+      "signingIdentity": "6A8B333BD1E0F3C6687B05AD12114ED928CD6617"
     },
     "icon": [
       "icons/32x32.png",

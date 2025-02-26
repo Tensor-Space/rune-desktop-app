@@ -47,11 +47,12 @@ impl App {
                 // Audio commands
                 commands::audio_commands::get_devices,
                 commands::audio_commands::set_default_device,
-                commands::audio_commands::transcribe,
                 commands::audio_commands::get_default_device,
                 // System commands
                 commands::system_commands::check_accessibility_permissions,
                 commands::system_commands::request_accessibility_permissions,
+                commands::system_commands::check_microphone_permissions,
+                commands::system_commands::request_microphone_permissions,
                 commands::system_commands::set_window_visibility,
                 commands::system_commands::get_settings,
                 commands::system_commands::update_shortcuts,

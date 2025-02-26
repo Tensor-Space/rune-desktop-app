@@ -77,8 +77,10 @@ impl Settings {
 
         if let Some(settings) = store.get("settings") {
             println!("Found existing settings: {:?}", settings);
-            return serde_json::from_value(settings)
-                .map_err(|e| ConfigError::Loading(format!("Failed to parse settings: {}", e)));
+
+            let settings: Settings = serde_json::from_value(settings)
+                .map_err(|e| ConfigError::Loading(format!("Failed to parse settings: {}", e)))?;
+            return Ok(settings);
         }
 
         println!("No existing settings found, creating defaults...");

@@ -14,6 +14,11 @@
     "global-shortcut:allow-register-all",
     "global-shortcut:allow-unregister-all",
     "fs:default",
-    "store:default"
+    "store:default",
+    "fs:allow-read-text-file",
+    "core:resources:default",
+    "core:menu:default",
+    "core:tray:default",
+    "fs:allow-resource-read-recursive"
   ]
 }

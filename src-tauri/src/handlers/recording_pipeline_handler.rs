@@ -1,10 +1,12 @@
 use std::{process::Command, sync::Arc};
 
 use crate::{
+    audio::{AudioRecorder, AudioTranscriber},
     core::{app::AppState, utils::audio::get_recordings_path},
     text::text_processor_pipeline::TextProcessorPipeline,
 };
-use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
+use parking_lot::{Mutex, MutexGuard};
+use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager, WebviewWindow};
 
 #[derive(Debug, Clone)]
 pub enum ProcessingStatus {
@@ -35,14 +37,40 @@ pub struct RecordingPipeline {
     state: Arc<AppState>,
     previous_app: parking_lot::Mutex<Option<String>>,
     app_handle: AppHandle,
+    recorder: Arc<Mutex<AudioRecorder>>,
+    transcriber: Arc<Mutex<AudioTranscriber>>,
 }
 
 impl RecordingPipeline {
     pub fn new(state: Arc<AppState>, app_handle: AppHandle) -> Self {
+        let recorder = Arc::new(Mutex::new(AudioRecorder::new()));
+
+        let resource_dir = app_handle
+            .path()
+            .resolve("models/whisper-base", BaseDirectory::Resource)
+            .ok();
+
+        let transcriber = match AudioTranscriber::new(resource_dir) {
+            Ok(t) => Arc::new(Mutex::new(t)),
+            Err(e) => {
+                log::error!("Failed to create transcriber with custom path: {}", e);
+                // Fallback to default path
+                match AudioTranscriber::new(None) {
+                    Ok(t) => Arc::new(Mutex::new(t)),
+                    Err(e) => {
+                        log::error!("Failed to create transcriber with default path: {}", e);
+                        panic!("Cannot initialize transcriber: {}", e);
+                    }
+                }
+            }
+        };
+
         Self {
             state,
             previous_app: parking_lot::Mutex::new(None),
             app_handle,
+            recorder,
+            transcriber,
         }
     }
 
@@ -77,8 +105,10 @@ impl RecordingPipeline {
 
         let settings = self.state.settings.read().clone();
         let device_id = settings.audio.default_device.clone();
-        let recorder = self.state.recorder.lock();
+
+        let recorder = self.recorder.lock();
         recorder.set_device_id(device_id);
+        recorder.set_app_handle(self.app_handle.clone());
 
         match recorder.start_recording(&self.app_handle).await {
             Ok(_) => window.emit(
@@ -89,7 +119,7 @@ impl RecordingPipeline {
                 log::error!("Failed to start recording: {}", e);
                 window.emit(
                     "audio-processing-status",
-                    ProcessingStatus::Error("Failed to start recording".to_string()).as_str(),
+                    ProcessingStatus::Error(format!("Failed to start recording: {}", e)).as_str(),
                 )
             }
         }
@@ -102,18 +132,12 @@ impl RecordingPipeline {
         let window = self.app_handle.get_webview_window("main").unwrap();
         let temp_path = get_recordings_path(&self.app_handle).join("rune_recording.wav");
 
-        if let Err(e) = self
-            .state
-            .recorder
-            .lock()
-            .stop_recording(temp_path.clone())
-            .await
-        {
+        if let Err(e) = self.recorder.lock().stop_recording(temp_path.clone()).await {
             log::error!("Failed to stop recording: {}", e);
             window
                 .emit(
                     "audio-processing-status",
-                    ProcessingStatus::Error("Failed to stop recording".to_string()).as_str(),
+                    ProcessingStatus::Error(format!("Failed to stop recording: {}", e)).as_str(),
                 )
                 .unwrap_or_else(|e| log::error!("Failed to emit error status: {}", e));
             return;
@@ -130,10 +154,17 @@ impl RecordingPipeline {
             )
             .unwrap_or_else(|e| log::error!("Failed to emit status: {}", e));
 
-        let mut transcriber = self.state.transcriber.lock();
+        let mut transcriber = self.transcriber.lock();
         let app_name = self.previous_app.lock().clone().unwrap_or_default();
 
         if !temp_path.exists() {
+            window
+                .emit(
+                    "audio-processing-status",
+                    ProcessingStatus::Error("No recording found to transcribe".to_string())
+                        .as_str(),
+                )
+                .unwrap_or_else(|e| log::error!("Failed to emit error status: {}", e));
             return;
         }
 
@@ -178,6 +209,14 @@ impl RecordingPipeline {
                             });
                         }
                     }
+                } else {
+                    log::error!("No transcription text available");
+                    window
+                        .emit(
+                            "audio-processing-status",
+                            ProcessingStatus::Error("No text transcribed".to_string()).as_str(),
+                        )
+                        .unwrap_or_else(|e| log::error!("Failed to emit error status: {}", e));
                 }
             }
             Err(e) => {
@@ -185,10 +224,19 @@ impl RecordingPipeline {
                 window
                     .emit(
                         "audio-processing-status",
-                        ProcessingStatus::Error("Transcription failed".to_string()).as_str(),
+                        ProcessingStatus::Error(format!("Transcription failed: {}", e)).as_str(),
                     )
                     .unwrap_or_else(|e| log::error!("Failed to emit error status: {}", e));
             }
         }
+    }
+
+    // Getter methods for the recorder and transcriber
+    pub fn get_recorder(&self) -> MutexGuard<AudioRecorder> {
+        self.recorder.lock()
+    }
+
+    pub fn get_transcriber(&self) -> MutexGuard<AudioTranscriber> {
+        self.transcriber.lock()
     }
 }
