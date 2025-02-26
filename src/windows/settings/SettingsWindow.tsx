@@ -10,8 +10,8 @@ import {
 } from "lucide-react";
 import { Settings } from "./types";
 import { Button } from "@/components/ui/button";
-import { Permissions } from "./pages/Permissions";
-import { Audio } from "./pages/Audio";
+import { Permissions } from "./pages/Accessibility";
+import { Audio } from "./pages/Microphone";
 import { Shortcuts } from "./pages/Shortcuts";
 
 const steps = [
