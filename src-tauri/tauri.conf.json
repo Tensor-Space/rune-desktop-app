@@ -21,7 +21,8 @@
     "resources": ["models/**/*"],
     "macOS": {
       "providerShortName": "4T3ZXB8C4V",
-      "signingIdentity": "6A8B333BD1E0F3C6687B05AD12114ED928CD6617"
+      "signingIdentity": "6A8B333BD1E0F3C6687B05AD12114ED928CD6617",
+      "entitlements": "entitlements.plist"
     },
     "icon": [
       "icons/32x32.png",
