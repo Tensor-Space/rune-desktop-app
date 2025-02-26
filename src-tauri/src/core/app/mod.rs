@@ -47,11 +47,12 @@ impl App {
                 // Audio commands
                 commands::audio_commands::get_devices,
                 commands::audio_commands::set_default_device,
-                commands::audio_commands::transcribe,
                 commands::audio_commands::get_default_device,
                 // System commands
                 commands::system_commands::check_accessibility_permissions,
                 commands::system_commands::request_accessibility_permissions,
+                commands::system_commands::check_microphone_permissions,
+                commands::system_commands::request_microphone_permissions,
                 commands::system_commands::set_window_visibility,
                 commands::system_commands::get_settings,
                 commands::system_commands::update_shortcuts,
@@ -115,7 +116,7 @@ impl App {
             WebviewWindowBuilder::new(app, "settings", WebviewUrl::App("settings".into()))
                 .title("Rune Settings")
                 .visible(false)
-                .inner_size(1100.0, 800.0)
+                .inner_size(800.0, 800.0)
                 .hidden_title(true);
 
         let _settings_window = settings_win_builder.build()?;

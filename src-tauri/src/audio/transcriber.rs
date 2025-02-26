@@ -1,13 +1,15 @@
+use std::path::PathBuf;
+
 use crate::core::error::AudioError;
-use rune_whisper::{Whisper as WhisperModel, WhisperConfig};
+use rune_whisper_local::{Whisper as WhisperModel, WhisperConfig};
 
 pub struct AudioTranscriber {
     model: WhisperModel,
 }
 
 impl AudioTranscriber {
-    pub fn new() -> Result<Self, AudioError> {
-        let config = WhisperConfig::default();
+    pub fn new(model_dir: Option<PathBuf>) -> Result<Self, AudioError> {
+        let config = WhisperConfig::new(model_dir);
         Ok(Self {
             model: WhisperModel::new(config)
                 .map_err(|e| AudioError::Transcription(e.to_string()))?,

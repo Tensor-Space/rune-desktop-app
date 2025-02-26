@@ -15,6 +15,16 @@ pub async fn request_accessibility_permissions() -> Result<bool, String> {
 }
 
 #[command]
+pub async fn check_microphone_permissions() -> Result<bool, String> {
+    permissions::check_microphone_permissions().map_err(|e| e.to_string())
+}
+
+#[command]
+pub async fn request_microphone_permissions() -> Result<bool, String> {
+    permissions::request_microphone_permissions().map_err(|e| e.to_string())
+}
+
+#[command]
 pub async fn set_window_visibility(visible: bool, app_handle: AppHandle) -> Result<(), String> {
     if visible {
         app_handle.show().map_err(|e| e.to_string())?;

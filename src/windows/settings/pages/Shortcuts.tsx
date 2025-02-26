@@ -1,10 +1,43 @@
-import { HotkeySettings } from "../components/HotkeySettings/HotkeySettings";
+import { useState, useEffect } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { HotkeyRecorder } from "../components/HotkeyRecorder";
+import { Settings } from "../types";
 
-export const Shortcuts = () => {
+interface ShortcutsProps {
+  onComplete: () => void;
+  isStepComplete?: boolean;
+}
+
+export const Shortcuts = ({ onComplete }: ShortcutsProps) => {
+  const [, setHasSetShortcut] = useState(false);
+
+  useEffect(() => {
+    const checkShortcuts = async () => {
+      try {
+        const settings = await invoke<Settings>("get_settings");
+        const hasShortcut = !!settings.shortcuts.record_key;
+        setHasSetShortcut(hasShortcut);
+        if (hasShortcut) {
+          onComplete();
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    checkShortcuts();
+  }, [onComplete]);
+
   return (
-    <div className="space-y-8">
-      <h1 className="text-2xl font-bold text-foreground">Keyboard Shortcuts</h1>
-      <HotkeySettings />
+    <div className="container mx-auto">
+      <HotkeyRecorder
+        onShortcutChange={(shortcutSet) => {
+          setHasSetShortcut(shortcutSet);
+          if (shortcutSet) {
+            onComplete();
+          }
+        }}
+      />
     </div>
   );
 };

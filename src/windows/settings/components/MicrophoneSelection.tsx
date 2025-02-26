@@ -18,13 +18,19 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
 import { AudioDevice } from "../types";
 
-export const AudioSettings = () => {
+interface MicrophoneSelectionProps {
+  onDeviceSelected?: () => void;
+}
+
+export const MicrophoneSelection = ({
+  onDeviceSelected,
+}: MicrophoneSelectionProps) => {
   const [devices, setDevices] = useState<AudioDevice[]>([]);
   const [selectedDevice, setSelectedDevice] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const loadAudioSettings = async () => {
+    const loadMicrophoneSelection = async () => {
       try {
         const audioDevices = await invoke<AudioDevice[]>("get_devices");
         setDevices(audioDevices);
@@ -34,8 +40,10 @@ export const AudioSettings = () => {
         );
         if (defaultDevice) {
           setSelectedDevice(defaultDevice.id);
+          onDeviceSelected?.();
         } else if (audioDevices.length > 0) {
           setSelectedDevice(audioDevices[0].id);
+          onDeviceSelected?.();
         }
       } catch (error) {
         setError("Failed to load audio devices");
@@ -43,13 +51,14 @@ export const AudioSettings = () => {
       }
     };
 
-    loadAudioSettings();
-  }, []);
+    loadMicrophoneSelection();
+  }, [onDeviceSelected]);
 
   const handleDeviceChange = async (deviceId: string) => {
     try {
       await invoke("set_default_device", { deviceId });
       setSelectedDevice(deviceId);
+      onDeviceSelected?.();
       setError(null);
     } catch (error) {
       setError("Failed to save device selection");

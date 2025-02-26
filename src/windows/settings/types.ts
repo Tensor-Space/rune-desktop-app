@@ -2,12 +2,11 @@ export interface Settings {
   shortcuts: ShortcutConfig;
   audio: AudioConfig;
   window: WindowConfig;
-  ai: AIConfig;
 }
 
 export interface ShortcutConfig {
-  record_key: string;
-  record_modifier: string;
+  record_key: string | null;
+  record_modifier: string | null;
 }
 
 export interface AudioConfig {
@@ -22,9 +21,4 @@ export interface WindowConfig {
 export interface AudioDevice {
   name: string;
   id: string;
-}
-
-export interface AIConfig {
-  model: string;
-  temperature: number;
 }
