@@ -8,6 +8,7 @@ use crate::{
 pub use state::AppState;
 use std::sync::Arc;
 use tauri::{
+    image::Image,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
     Manager, WebviewUrl, WebviewWindowBuilder,
@@ -152,7 +153,15 @@ impl App {
             RecordingPipeline::new(Arc::clone(&self.state), app.app_handle().clone());
         let rt = Runtime::new().unwrap();
         let _tray = TrayIconBuilder::with_id("tray")
-            .icon(app.default_window_icon().unwrap().clone())
+            .icon(
+                Image::from_path(
+                    app.path()
+                        .resource_dir()
+                        .unwrap()
+                        .join("icons/tray-icon.ico"),
+                )
+                .unwrap(),
+            )
             .menu(&tray_menu)
             .on_menu_event(move |app, event| match event.id.as_ref() {
                 "start_recording" => {

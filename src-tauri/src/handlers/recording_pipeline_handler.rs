@@ -1,4 +1,4 @@
-use std::{process::Command, sync::Arc};
+use std::{process::Command, sync::Arc, thread};
 
 use crate::{
     audio::{AudioRecorder, AudioTranscriber},
@@ -6,7 +6,7 @@ use crate::{
     text::text_processor_pipeline::TextProcessorPipeline,
 };
 use parking_lot::{Mutex, MutexGuard};
-use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager, WebviewWindow};
+use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager};
 
 #[derive(Debug, Clone)]
 pub enum ProcessingStatus {
@@ -86,7 +86,7 @@ impl RecordingPipeline {
             .map(|s| s.trim().to_string())
     }
 
-    fn activate_app(app_name: &str) {
+    pub fn activate_app(app_name: &str) {
         Command::new("osascript")
             .arg("-e")
             .arg(format!(r#"tell application "{}" to activate"#, app_name))
@@ -143,92 +143,158 @@ impl RecordingPipeline {
             return;
         }
 
-        self.process_recording(window, temp_path).await;
-    }
+        // Clone what we need for the background thread
+        let app_handle = self.app_handle.clone();
+        let transcriber = self.transcriber.clone();
+        let state = self.state.clone();
+        let previous_app_copy = self.previous_app.lock().clone();
+        let mut previous_app_mutex = self.previous_app.lock().clone();
 
-    async fn process_recording(&self, window: WebviewWindow, temp_path: std::path::PathBuf) {
-        window
-            .emit(
-                "audio-processing-status",
-                ProcessingStatus::Transcribing.as_str(),
-            )
-            .unwrap_or_else(|e| log::error!("Failed to emit status: {}", e));
-
-        let mut transcriber = self.transcriber.lock();
-        let app_name = self.previous_app.lock().clone().unwrap_or_default();
-
-        if !temp_path.exists() {
-            window
+        // Use a regular thread for CPU-intensive transcription
+        thread::spawn(move || {
+            // Update UI status to transcribing
+            app_handle
                 .emit(
                     "audio-processing-status",
-                    ProcessingStatus::Error("No recording found to transcribe".to_string())
-                        .as_str(),
+                    ProcessingStatus::Transcribing.as_str(),
                 )
-                .unwrap_or_else(|e| log::error!("Failed to emit error status: {}", e));
-            return;
-        }
+                .unwrap_or_else(|e| log::error!("Failed to emit status: {}", e));
 
-        match transcriber.transcribe(temp_path) {
-            Ok(transcription) => {
-                if let Some(text) = transcription.first() {
-                    window
-                        .emit(
-                            "audio-processing-status",
-                            ProcessingStatus::ThinkingAction.as_str(),
-                        )
-                        .unwrap_or_else(|e| log::error!("Failed to emit status: {}", e));
+            if !temp_path.exists() {
+                app_handle
+                    .emit(
+                        "audio-processing-status",
+                        ProcessingStatus::Error("No recording found to transcribe".to_string())
+                            .as_str(),
+                    )
+                    .unwrap_or_else(|e| log::error!("Failed to emit error status: {}", e));
+                return;
+            }
 
-                    match TextProcessorPipeline::process_text(&self.state, &app_name, text).await {
-                        Ok(processed_text) => {
-                            if let Some(app_name) = self.previous_app.lock().take() {
-                                Self::activate_app(&app_name);
+            // Get the app name that was captured
+            let app_name = previous_app_copy.unwrap_or_default();
+
+            // Perform transcription (CPU-intensive)
+            let transcription_result = {
+                let mut transcriber_guard = transcriber.lock();
+                transcriber_guard.transcribe(temp_path.clone())
+            };
+
+            match transcription_result {
+                Ok(transcription) => {
+                    if let Some(text) = transcription.first() {
+                        // Update UI status to thinking
+                        app_handle
+                            .emit(
+                                "audio-processing-status",
+                                ProcessingStatus::ThinkingAction.as_str(),
+                            )
+                            .unwrap_or_else(|e| log::error!("Failed to emit status: {}", e));
+
+                        // Now run the text processing (which is also async) in a task runner
+                        let text_clone = text.clone();
+                        let app_name_clone = app_name.clone();
+
+                        // Create a one-shot channel for communicating results
+                        let (tx, rx) = std::sync::mpsc::channel();
+
+                        // Spawn a tokio runtime for the async processing
+                        let rt = tokio::runtime::Builder::new_current_thread()
+                            .enable_all()
+                            .build()
+                            .unwrap();
+
+                        // Run the async processing
+                        rt.block_on(async {
+                            let result = TextProcessorPipeline::process_text(
+                                &state,
+                                &app_name_clone,
+                                &text_clone,
+                            )
+                            .await;
+                            tx.send(result).unwrap();
+                        });
+
+                        // Get the processing result
+                        match rx.recv().unwrap() {
+                            Ok(processed_text) => {
+                                // Activate the previous app
+                                if let Some(app) = previous_app_mutex.take() {
+                                    RecordingPipeline::activate_app(&app);
+                                }
+
+                                // Inject the processed text
+                                if let Err(e) = TextProcessorPipeline::inject_text(&processed_text)
+                                {
+                                    log::error!("Failed to inject text: {}", e);
+                                }
+
+                                // Update UI status to completed and hide window
+                                app_handle
+                                    .emit(
+                                        "audio-processing-status",
+                                        ProcessingStatus::Completed.as_str(),
+                                    )
+                                    .unwrap_or_else(|e| {
+                                        log::error!("Failed to emit status: {}", e)
+                                    });
+
+                                if let Some(window) = app_handle.get_webview_window("main") {
+                                    window.hide().unwrap_or_else(|e| {
+                                        log::error!("Failed to hide window: {}", e)
+                                    });
+                                }
                             }
+                            Err(e) => {
+                                log::error!("Text processing error: {}", e);
 
-                            if let Err(e) = TextProcessorPipeline::inject_text(&processed_text) {
-                                log::error!("Failed to inject text: {}", e);
+                                // Activate the previous app
+                                if let Some(app) = previous_app_mutex.take() {
+                                    RecordingPipeline::activate_app(&app);
+                                }
+
+                                // Fall back to injecting the original text
+                                TextProcessorPipeline::inject_text(text).unwrap_or_else(|e| {
+                                    log::error!("Failed to inject original text: {}", e)
+                                });
+
+                                // Update UI status to error
+                                app_handle
+                                    .emit(
+                                        "audio-processing-status",
+                                        ProcessingStatus::Error(format!(
+                                            "Processing failed: {}",
+                                            e
+                                        ))
+                                        .as_str(),
+                                    )
+                                    .unwrap_or_else(|e| {
+                                        log::error!("Failed to emit error status: {}", e)
+                                    });
                             }
-
-                            window
-                                .emit(
-                                    "audio-processing-status",
-                                    ProcessingStatus::Completed.as_str(),
-                                )
-                                .unwrap_or_else(|e| log::error!("Failed to emit status: {}", e));
-
-                            window
-                                .hide()
-                                .unwrap_or_else(|e| log::error!("Failed to hide window: {}", e));
                         }
-                        Err(e) => {
-                            log::error!("Text processing error: {}", e);
-                            if let Some(app_name) = self.previous_app.lock().take() {
-                                Self::activate_app(&app_name);
-                            }
-                            TextProcessorPipeline::inject_text(text).unwrap_or_else(|e| {
-                                log::error!("Failed to inject original text: {}", e)
-                            });
-                        }
+                    } else {
+                        log::error!("No transcription text available");
+                        app_handle
+                            .emit(
+                                "audio-processing-status",
+                                ProcessingStatus::Error("No text transcribed".to_string()).as_str(),
+                            )
+                            .unwrap_or_else(|e| log::error!("Failed to emit error status: {}", e));
                     }
-                } else {
-                    log::error!("No transcription text available");
-                    window
+                }
+                Err(e) => {
+                    log::error!("Transcription error: {}", e);
+                    app_handle
                         .emit(
                             "audio-processing-status",
-                            ProcessingStatus::Error("No text transcribed".to_string()).as_str(),
+                            ProcessingStatus::Error(format!("Transcription failed: {}", e))
+                                .as_str(),
                         )
                         .unwrap_or_else(|e| log::error!("Failed to emit error status: {}", e));
                 }
             }
-            Err(e) => {
-                log::error!("Transcription error: {}", e);
-                window
-                    .emit(
-                        "audio-processing-status",
-                        ProcessingStatus::Error(format!("Transcription failed: {}", e)).as_str(),
-                    )
-                    .unwrap_or_else(|e| log::error!("Failed to emit error status: {}", e));
-            }
-        }
+        });
     }
 
     // Getter methods for the recorder and transcriber
