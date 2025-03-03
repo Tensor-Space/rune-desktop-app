@@ -15,8 +15,10 @@ jobs:
         include:
           - platform: "macos-latest"
             args: "--target aarch64-apple-darwin"
+            arch: "arm64"
           - platform: "macos-latest"
             args: "--target x86_64-apple-darwin"
+            arch: "x64"
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -94,3 +96,24 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      # New steps to extract app version and upload artifacts
+      - name: Extract app version
+        id: app_version
+        run: |
+          VERSION=$(grep -m 1 '"version"' src-tauri/tauri.conf.json | awk -F: '{ print $2 }' | sed 's/[",]//g' | tr -d '[:space:]')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Find build artifact
+        id: find_artifact
+        run: |
+          ARTIFACT_PATH=$(find target/*/release/bundle/dmg -name "*.dmg" -o -name "*.app" | head -n 1)
+          echo "ARTIFACT_PATH=$ARTIFACT_PATH" >> $GITHUB_ENV
+          echo "Found artifact at $ARTIFACT_PATH"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: rune-app-${{ env.VERSION }}-macos-${{ matrix.arch }}
+          path: ${{ env.ARTIFACT_PATH }}
+          retention-days: 7
