@@ -112,7 +112,7 @@ jobs:
           echo "Found artifact at $ARTIFACT_PATH"
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: rune-app-${{ env.VERSION }}-macos-${{ matrix.arch }}
           path: ${{ env.ARTIFACT_PATH }}
