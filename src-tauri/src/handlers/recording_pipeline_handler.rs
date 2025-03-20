@@ -1,4 +1,4 @@
-use std::{process::Command, sync::Arc, thread};
+use std::{process::Command, sync::Arc, thread, path::PathBuf};
 
 use crate::{
     audio::{AudioRecorder, AudioTranscriber},
@@ -45,20 +45,48 @@ impl RecordingPipeline {
     pub fn new(state: Arc<AppState>, app_handle: AppHandle) -> Self {
         let recorder = Arc::new(Mutex::new(AudioRecorder::new()));
 
+        // Ensure we resolve the model directory properly
         let resource_dir = app_handle
             .path()
             .resolve("models/whisper-base", BaseDirectory::Resource)
             .ok();
 
-        let transcriber = match AudioTranscriber::new(resource_dir) {
+        println!("Using model directory: {:?}", resource_dir);
+
+        let transcriber = match AudioTranscriber::new(resource_dir, Some(app_handle.clone())) {
             Ok(t) => Arc::new(Mutex::new(t)),
             Err(e) => {
                 log::error!("Failed to create transcriber with custom path: {}", e);
-                // Fallback to default path
-                match AudioTranscriber::new(None) {
+                
+                // Try to find model in common locations as a fallback
+                let fallback_paths = [
+                    dirs::data_dir().map(|p| p.join("rune/models/whisper-base")),
+                    Some(PathBuf::from("./models/whisper-base")),
+                    Some(PathBuf::from("../models/whisper-base")),
+                ];
+                
+                for path in fallback_paths.iter().flatten() {
+                    if path.exists() {
+                        log::info!("Trying fallback model path: {:?}", path);
+                        if let Ok(t) = AudioTranscriber::new(Some(path.clone()), Some(app_handle.clone())) {
+                            return Self {
+                                state,
+                                previous_app: parking_lot::Mutex::new(None),
+                                app_handle,
+                                recorder,
+                                transcriber: Arc::new(Mutex::new(t)),
+                            };
+                        }
+                    }
+                }
+                
+                // Last resort - create a transcriber without a model
+                // It won't be able to transcribe but can handle history operations
+                log::warn!("Creating transcriber without model - will not be able to transcribe");
+                match AudioTranscriber::new(None, Some(app_handle.clone())) {
                     Ok(t) => Arc::new(Mutex::new(t)),
                     Err(e) => {
-                        log::error!("Failed to create transcriber with default path: {}", e);
+                        log::error!("Failed to create transcriber: {}", e);
                         panic!("Cannot initialize transcriber: {}", e);
                     }
                 }

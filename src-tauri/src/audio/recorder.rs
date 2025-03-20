@@ -539,7 +539,8 @@ impl AudioRecorder {
 
         Ok(())
     }
-}
+    
+} 
 
 unsafe impl Send for AudioRecorder {}
 unsafe impl Sync for AudioRecorder {}
