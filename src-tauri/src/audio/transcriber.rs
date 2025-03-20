@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use rand::Rng;
 use serde::{Serialize, Deserialize};
 use chrono::Utc;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_store::StoreExt;
 use crate::core::error::AudioError;
 use rune_whisper_local::{Whisper as WhisperModel, WhisperConfig};
@@ -90,7 +90,7 @@ impl AudioTranscriber {
             .map_err(|e| AudioError::Transcription(format!("Failed to save history: {}", e)))?;
 
         // Try to emit the event, but don't fail if it doesn't work
-        match app_handle.emit_all("transcription-added", serde_json::json!(new_entry)) {
+        match app_handle.emit("transcription-added", serde_json::json!(new_entry)) {
             Ok(_) => println!("Successfully emitted transcription-added event"),
             Err(e) => eprintln!("Failed to emit transcription-added event: {}", e),
         }
