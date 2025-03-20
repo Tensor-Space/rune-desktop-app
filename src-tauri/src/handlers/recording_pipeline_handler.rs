@@ -272,6 +272,19 @@ impl RecordingPipeline {
                                         log::error!("Failed to hide window: {}", e)
                                     });
                                 }
+
+                                // Update history window if it's open
+                                if let Some(history_window) = app_handle.get_webview_window("history") {
+                                    // Instead of checking if the window is visible, just emit a global event
+                                    // This will be picked up by any open history windows
+                                    // We already emit the transcription-added event in save_transcription,
+                                    // but emit a refresh event as a fallback
+                                    if let Err(e) = app_handle.emit("refresh-history", ()) {
+                                        log::error!("Failed to emit history refresh event: {}", e);
+                                    } else {
+                                        log::info!("Emitted history refresh event");
+                                    }
+                                }
                             }
                             Err(e) => {
                                 log::error!("Text processing error: {}", e);

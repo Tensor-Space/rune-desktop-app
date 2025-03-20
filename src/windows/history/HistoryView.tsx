@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { Button } from "@/components/ui/button";
 import { format, parseISO } from "date-fns";
 
@@ -15,32 +16,82 @@ export const HistoryView = () => {
     const [error, setError] = useState<string | null>(null);
     const [transcriptions, setTranscriptions] = useState<TranscriptionHistory[]>([]);
 
+    // Load transcriptions without setting loading state (for refreshes)
+    const refreshTranscriptions = async () => {
+        try {
+            console.log("Refreshing transcription history...");
+            const result = await invoke<TranscriptionHistory[]>("get_transcription_history");
+            console.log("Received transcriptions:", result);
+            setTranscriptions(result);
+            setError(null);
+        } catch (error) {
+            console.error("Failed to refresh transcriptions:", error);
+            setError(`Failed to refresh transcription history: ${error}`);
+        }
+    };
+
+    // Initial load of transcriptions with loading state
+    const loadTranscriptions = async () => {
+        try {
+            console.log("Initial loading of transcription history...");
+            setIsLoading(true);
+            const result = await invoke<TranscriptionHistory[]>("get_transcription_history");
+            console.log("Received transcriptions:", result);
+            setTranscriptions(result);
+            setError(null);
+        } catch (error) {
+            console.error("Failed to load transcriptions:", error);
+            setError(`Failed to load transcription history: ${error}`);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     useEffect(() => {
         // Prevent scrolling on body and html
         document.body.style.overflow = "hidden";
         document.documentElement.style.overflow = "hidden";
 
-        // Load transcriptions from the backend
-        const loadTranscriptions = async () => {
+        // Initialize with transcriptions
+        loadTranscriptions();
+
+        // Setup a periodic refresh every 5 seconds as a fallback
+        // This ensures transcriptions appear even if events don't work
+        const intervalId = setInterval(() => {
+            refreshTranscriptions();
+        }, 5000);
+
+        // Try to set up the event listener, but don't fail if it doesn't work
+        let unlistenFn: UnlistenFn | null = null;
+
+        const setupEventListener = async () => {
             try {
-                console.log("Fetching transcription history...");
-                const result = await invoke<TranscriptionHistory[]>("get_transcription_history");
-                console.log("Received transcriptions:", result);
-                setTranscriptions(result);
-            } catch (error) {
-                console.error("Failed to load transcriptions:", error);
-                setError(`Failed to load transcription history: ${error}`);
-            } finally {
-                setIsLoading(false);
+                // Listen for the transcription-added event
+                const unlisten = await listen<any>("transcription-added", () => {
+                    console.log("Received transcription-added event");
+                    refreshTranscriptions();
+                });
+                unlistenFn = unlisten;
+                console.log("Event listener set up successfully");
+            } catch (err) {
+                console.warn("Could not set up event listener, falling back to polling:", err);
             }
         };
 
-        loadTranscriptions();
+        setupEventListener();
 
         return () => {
             // Cleanup
             document.body.style.overflow = "";
             document.documentElement.style.overflow = "";
+            
+            // Clear the interval
+            clearInterval(intervalId);
+            
+            // Remove event listener if it was set up
+            if (unlistenFn) {
+                unlistenFn();
+            }
         };
     }, []);
 
@@ -62,6 +113,11 @@ export const HistoryView = () => {
         const parts = path.split(/[\/\\]/);
         return parts[parts.length - 1];
     };
+
+    // Sort transcriptions by timestamp (latest first)
+    const sortedTranscriptions = [...transcriptions].sort((a, b) => {
+        return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+    });
 
     if (isLoading) {
         return (
@@ -92,13 +148,13 @@ export const HistoryView = () => {
 
                 {/* Transcriptions List */}
                 <div className="flex-1 overflow-auto">
-                    {transcriptions.length === 0 ? (
+                    {sortedTranscriptions.length === 0 ? (
                         <div className="text-center text-muted-foreground p-6">
                             No recordings yet. Start recording to see your history.
                         </div>
                     ) : (
                         <div className="space-y-4">
-                            {transcriptions.map((transcription) => (
+                            {sortedTranscriptions.map((transcription) => (
                                 <div 
                                     key={transcription.id} 
                                     className="bg-card rounded-lg p-4 flex flex-col shadow-sm border border-border"

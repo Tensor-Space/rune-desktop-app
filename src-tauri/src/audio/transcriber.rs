@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use rand::Rng;
 use serde::{Serialize, Deserialize};
 use chrono::Utc;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_store::StoreExt;
 use crate::core::error::AudioError;
 use rune_whisper_local::{Whisper as WhisperModel, WhisperConfig};
@@ -81,13 +81,27 @@ impl AudioTranscriber {
             .unwrap_or_else(|| Vec::new());
         
         // Add new entry
-        history.push(new_entry);
+        history.push(new_entry.clone());
         
         // Save back to store
         store.set("transcriptions", serde_json::json!(history));
         
         store.save()
             .map_err(|e| AudioError::Transcription(format!("Failed to save history: {}", e)))?;
+
+        // Try to emit the event, but don't fail if it doesn't work
+        match app_handle.emit_all("transcription-added", serde_json::json!(new_entry)) {
+            Ok(_) => println!("Successfully emitted transcription-added event"),
+            Err(e) => eprintln!("Failed to emit transcription-added event: {}", e),
+        }
+
+        // If the history window is open, try to refresh it directly
+        if let Some(history_window) = app_handle.get_webview_window("history") {
+            if let Ok(true) = history_window.is_visible() {
+                // Try to force the window to refresh or focus, which might trigger a rerender
+                let _ = history_window.set_focus();
+            }
+        }
 
         Ok(())
     }

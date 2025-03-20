@@ -12,7 +12,12 @@
   "app": {
     "windows": [],
     "security": {
-      "csp": null
+      "csp": null,
+      "dangerousRemoteDomainIpcAccess": [],
+      "assetProtocol": {
+        "enable": false,
+        "scope": {}
+      }
     }
   },
   "bundle": {
@@ -26,5 +31,21 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "shell": {
+      "open": true
+    },
+    "window": {
+      "create": true,
+      "center": true,
+      "maximize": false,
+      "show": true,
+      "startDragging": true,
+      "focus": true
+    },
+    "event": {
+      "all": true
+    }
   }
 }
