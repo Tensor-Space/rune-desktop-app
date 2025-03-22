@@ -252,9 +252,13 @@ impl RecordingPipeline {
                                 }
 
                                 // Inject the processed text
-                                if let Err(e) = TextProcessorPipeline::inject_text(&processed_text)
-                                {
+                                if let Err(e) = TextProcessorPipeline::inject_text(&processed_text) {
                                     log::error!("Failed to inject text: {}", e);
+                                }
+
+                                // Save the processed text to history
+                                if let Err(e) = transcriber.lock().save_processed_text(&app_handle, &processed_text) {
+                                    log::error!("Failed to save processed text to history: {}", e);
                                 }
 
                                 // Update UI status to completed and hide window
@@ -263,9 +267,7 @@ impl RecordingPipeline {
                                         "audio-processing-status",
                                         ProcessingStatus::Completed.as_str(),
                                     )
-                                    .unwrap_or_else(|e| {
-                                        log::error!("Failed to emit status: {}", e)
-                                    });
+                                    .unwrap_or_else(|e| log::error!("Failed to emit status: {}", e));
 
                                 if let Some(window) = app_handle.get_webview_window("main") {
                                     window.hide().unwrap_or_else(|e| {

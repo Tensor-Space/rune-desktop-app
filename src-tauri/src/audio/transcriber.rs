@@ -18,11 +18,10 @@ pub struct TranscriptionHistory {
 
 pub struct AudioTranscriber {
     model: Option<WhisperModel>,
-    app_handle: Option<AppHandle>,
 }
 
 impl AudioTranscriber {
-    pub fn new(model_dir: Option<PathBuf>, app_handle: Option<AppHandle>) -> Result<Self, AudioError> {
+    pub fn new(model_dir: Option<PathBuf>, _app_handle: Option<AppHandle>) -> Result<Self, AudioError> {
         // If model_dir is None, create a transcriber without a model (only for history operations)
         let model = if let Some(dir) = model_dir {
             let config = WhisperConfig::new(Some(dir));
@@ -34,7 +33,6 @@ impl AudioTranscriber {
         
         Ok(Self {
             model,
-            app_handle,
         })
     }
 
@@ -50,21 +48,15 @@ impl AudioTranscriber {
             .transcribe(audio_path.clone())
             .map_err(|e| AudioError::Transcription(format!("Transcription failed: {}", e)))?;
 
-        // Save transcription history if we have an app handle
-        if let Some(app_handle) = &self.app_handle {
-            if let Err(e) = self.save_transcription(app_handle, &transcription_result) {
-                eprintln!("Failed to save transcription history: {}", e);
-            }
-        }
-
         Ok(transcription_result)
     }
 
-    fn save_transcription(&self, app_handle: &AppHandle, text: &Vec<String>) -> Result<(), AudioError> {
+    // Method to save processed text to history
+    pub fn save_processed_text(&self, app_handle: &AppHandle, text: &str) -> Result<(), AudioError> {
         let new_entry = TranscriptionHistory {
             id: self.generate_id(),
             timestamp: Utc::now().to_rfc3339(),
-            text: text.join(" "), // Convert Vec<String> to a single string
+            text: text.to_string(),
         };
 
         // Get the store from app_handle
@@ -90,7 +82,7 @@ impl AudioTranscriber {
         // Try to emit the event, but don't fail if it doesn't work
         match app_handle.emit("transcription-added", serde_json::json!(new_entry)) {
             Ok(_) => println!("Successfully emitted transcription-added event"),
-            Err(e) => eprintln!("Failed to emit transcription-added event: {}", e),
+            Err(e) => eprintln!("Failed to emit tranacription-added event: {}", e),
         }
 
         // If the history window is open, try to refresh it directly

@@ -12,17 +12,18 @@
   "app": {
     "windows": [],
     "security": {
-      "csp": null,
-      "assetProtocol": {
-        "enable": false,
-        "scope": {}
-      }
+      "csp": null
     }
   },
   "bundle": {
     "active": true,
     "targets": "all",
     "resources": ["models/**/*", "icons/tray-icon.ico"],
+    "macOS": {
+      "providerShortName": "Apple",
+      "signingIdentity": "4T3ZXB8C4V",
+      "entitlements": "entitlements.plist"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
