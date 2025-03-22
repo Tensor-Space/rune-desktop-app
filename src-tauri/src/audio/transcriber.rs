@@ -89,7 +89,7 @@ impl AudioTranscriber {
         if let Some(history_window) = app_handle.get_webview_window("history") {
             if let Ok(true) = history_window.is_visible() {
                 // Try to force the window to refresh or focus, which might trigger a rerender
-                let _ = history_window.set_focus();
+                // let _ = history_window.set_focus();
             }
         }
 
