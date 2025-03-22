@@ -274,7 +274,7 @@ impl RecordingPipeline {
                                 }
 
                                 // Update history window if it's open
-                                if let Some(history_window) = app_handle.get_webview_window("history") {
+                                if let Some(_history_window) = app_handle.get_webview_window("history") {
                                     // Instead of checking if the window is visible, just emit a global event
                                     // This will be picked up by any open history windows
                                     // We already emit the transcription-added event in save_transcription,
