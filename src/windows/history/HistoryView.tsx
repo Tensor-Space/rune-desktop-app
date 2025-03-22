@@ -1,13 +1,11 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
-import { Button } from "@/components/ui/button";
 import { format, parseISO } from "date-fns";
 
 type TranscriptionHistory = {
     id: number;
     timestamp: string;
-    audio_path: string;
     text: string;
 };
 
@@ -95,11 +93,6 @@ export const HistoryView = () => {
         };
     }, []);
 
-    const handlePlay = (audioPath: string) => {
-        console.log(`Playing recording: ${audioPath}`);
-        // In future: implement actual audio playback using tauri-plugin-opener
-    };
-
     const formatTimestamp = (timestamp: string): string => {
         try {
             return format(parseISO(timestamp), "MMM d, yyyy HH:mm");
@@ -160,7 +153,6 @@ export const HistoryView = () => {
                                     className="bg-card rounded-lg p-4 flex flex-col shadow-sm border border-border"
                                 >
                                     <div className="flex justify-between items-center mb-2">
-                                        <h3 className="font-medium">{getFileName(transcription.audio_path)}</h3>
                                         <div className="text-sm text-muted-foreground">
                                             {formatTimestamp(transcription.timestamp)}
                                         </div>
@@ -168,16 +160,6 @@ export const HistoryView = () => {
                                     
                                     <div className="text-sm mb-3 max-h-20 overflow-y-auto">
                                         {transcription.text}
-                                    </div>
-                                    
-                                    <div className="flex justify-end gap-2 mt-auto">
-                                        <Button 
-                                            variant="secondary" 
-                                            size="sm"
-                                            onClick={() => handlePlay(transcription.audio_path)}
-                                        >
-                                            Play Audio
-                                        </Button>
                                     </div>
                                 </div>
                             ))}

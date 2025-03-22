@@ -13,7 +13,6 @@ const HISTORY_FILE: &str = "transcription_history.json";
 pub struct TranscriptionHistory {
     pub id: u32,
     pub timestamp: String,
-    pub audio_path: String,
     pub text: String,
 }
 
@@ -53,7 +52,7 @@ impl AudioTranscriber {
 
         // Save transcription history if we have an app handle
         if let Some(app_handle) = &self.app_handle {
-            if let Err(e) = self.save_transcription(app_handle, &audio_path, &transcription_result) {
+            if let Err(e) = self.save_transcription(app_handle, &transcription_result) {
                 eprintln!("Failed to save transcription history: {}", e);
             }
         }
@@ -61,11 +60,10 @@ impl AudioTranscriber {
         Ok(transcription_result)
     }
 
-    fn save_transcription(&self, app_handle: &AppHandle, audio_path: &PathBuf, text: &Vec<String>) -> Result<(), AudioError> {
+    fn save_transcription(&self, app_handle: &AppHandle, text: &Vec<String>) -> Result<(), AudioError> {
         let new_entry = TranscriptionHistory {
             id: self.generate_id(),
             timestamp: Utc::now().to_rfc3339(),
-            audio_path: audio_path.to_string_lossy().to_string(),
             text: text.join(" "), // Convert Vec<String> to a single string
         };
 
