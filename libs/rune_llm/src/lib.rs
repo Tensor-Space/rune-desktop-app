@@ -104,7 +104,7 @@ impl LLMClient {
                             }
 
                             // Log the error
-                            eprintln!("Attempt {} failed: {}", retries + 1, e);
+                            log::error!("Attempt {} failed: {}", retries + 1, e);
 
                             // Exponential backoff
                             let delay = base_delay * 2u32.pow(retries);
@@ -121,7 +121,7 @@ impl LLMClient {
                         ));
                     }
 
-                    eprintln!("Attempt {} timed out", retries + 1);
+                    log::error!("Attempt {} timed out", retries + 1);
 
                     let delay = base_delay * 2u32.pow(retries);
                     tokio::time::sleep(delay).await;

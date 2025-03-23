@@ -1,9 +1,9 @@
 use crate::prompts::text_generator_prompt::TextGeneratorPrompt;
 use rune_llm::LLMClient;
 
-pub struct TextGenerator;
+pub struct TextGeneratorService;
 
-impl TextGenerator {
+impl TextGeneratorService {
     pub async fn generate(
         llm_client: &parking_lot::MutexGuard<'_, LLMClient>,
         app_name: &str,

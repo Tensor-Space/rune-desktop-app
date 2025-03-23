@@ -10,10 +10,38 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [],
+    "windows": [
+      {
+        "label": "main",
+        "title": "Rune",
+        "width": 150,
+        "height": 40,
+        "visible": false,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true
+      },
+      {
+        "label": "settings",
+        "title": "Rune Settings",
+        "url": "settings",
+        "width": 800,
+        "height": 800,
+        "visible": false
+      },
+      {
+        "label": "history",
+        "title": "Rune History",
+        "url": "history",
+        "width": 800,
+        "height": 600,
+        "visible": false
+      }
+    ],
     "security": {
       "csp": null
-    }
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,

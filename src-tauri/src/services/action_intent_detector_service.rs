@@ -1,9 +1,9 @@
 use crate::prompts::text_intent_detector_prompt::TextIntentDetectorPrompt;
 use rune_llm::LLMClient;
 
-pub struct TextIntentDetector;
+pub struct ActionIntentDetectorService;
 
-impl TextIntentDetector {
+impl ActionIntentDetectorService {
     pub async fn detect_intent(
         llm_client: &parking_lot::MutexGuard<'_, LLMClient>,
         text: &str,

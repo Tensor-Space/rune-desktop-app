@@ -1,27 +1,27 @@
 use std::{str::FromStr, sync::Arc};
 
-use crate::core::{app::AppState, config::Settings, system::permissions};
+use crate::core::{app::AppState, config::Settings, system::permission_manager::PermissionManager};
 use tauri::{command, AppHandle};
 use tauri_plugin_global_shortcut::{Code, Modifiers};
 
 #[command]
 pub async fn check_accessibility_permissions() -> Result<bool, String> {
-    permissions::check_accessibility_permissions().map_err(|e| e.to_string())
+    PermissionManager::check_accessibility_permissions().map_err(|e| e.to_string())
 }
 
 #[command]
 pub async fn request_accessibility_permissions() -> Result<bool, String> {
-    permissions::request_accessibility_permissions().map_err(|e| e.to_string())
+    PermissionManager::request_accessibility_permissions().map_err(|e| e.to_string())
 }
 
 #[command]
 pub async fn check_microphone_permissions() -> Result<bool, String> {
-    permissions::check_microphone_permissions().map_err(|e| e.to_string())
+    PermissionManager::check_microphone_permissions().map_err(|e| e.to_string())
 }
 
 #[command]
 pub async fn request_microphone_permissions() -> Result<bool, String> {
-    permissions::request_microphone_permissions().map_err(|e| e.to_string())
+    PermissionManager::request_microphone_permissions().map_err(|e| e.to_string())
 }
 
 #[command]

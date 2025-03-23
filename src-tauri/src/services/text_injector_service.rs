@@ -1,15 +1,10 @@
+use crate::core::error::{AppError, SystemError};
 use enigo::{Enigo, Keyboard, Settings};
 
-use crate::core::error::{AppError, SystemError};
+pub struct TextInjectorService;
 
-pub struct TextInjector {}
-
-impl TextInjector {
-    pub fn new() -> Result<Self, AppError> {
-        Ok(Self {})
-    }
-
-    pub fn inject_text(&self, text: &str) -> Result<(), AppError> {
+impl TextInjectorService {
+    pub fn inject_text(text: &str) -> Result<(), AppError> {
         Enigo::new(&Settings::default())
             .map_err(|e| AppError::System(SystemError::General(e.to_string())))?
             .text(text)

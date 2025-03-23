@@ -100,7 +100,7 @@ impl Decoder {
         let model = &mut self.model;
         let audio_features = model.encoder_forward(mel, true)?;
         if self.verbose {
-            println!("audio features: {:?}", audio_features.dims());
+            log::info!("audio features: {:?}", audio_features.dims());
         }
         let sample_len = model.config().max_target_positions / 2;
         let mut sum_logprob = 0f64;
@@ -184,7 +184,7 @@ impl Decoder {
                     }
                 }
                 Err(err) => {
-                    println!("Error running at {t}: {err}")
+                    log::info!("Error running at {t}: {err}")
                 }
             }
         }
