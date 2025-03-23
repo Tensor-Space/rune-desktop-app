@@ -73,19 +73,19 @@ impl Settings {
             .store(SETTINGS_FILE)
             .map_err(|e| ConfigError::Loading(e.to_string()))?;
 
-        println!("Loading settings from store...");
+        log::info!("Loading settings from store...");
 
         if let Some(settings) = store.get("settings") {
-            println!("Found existing settings: {:?}", settings);
+            log::info!("Found existing settings: {:?}", settings);
 
             let settings: Settings = serde_json::from_value(settings)
                 .map_err(|e| ConfigError::Loading(format!("Failed to parse settings: {}", e)))?;
             return Ok(settings);
         }
 
-        println!("No existing settings found, creating defaults...");
+        log::info!("No existing settings found, creating defaults...");
         let default_settings = Self::default();
-        println!("Default settings: {:?}", default_settings);
+        log::info!("Default settings: {:?}", default_settings);
 
         store.set("settings", json!(default_settings.clone()));
 

@@ -1,4 +1,4 @@
-use crate::core::{app::AppState, error::AppError};
+use crate::core::{app::AppState, error::AppError, state_machine::AppCommand};
 use std::{str::FromStr, sync::Arc};
 use tauri::AppHandle;
 use tauri_plugin_global_shortcut::{
@@ -18,7 +18,7 @@ impl ShortcutManager {
         let handle = app.handle();
         let settings = self.app_state.settings.read().clone();
 
-        println!("{:?}", settings);
+        log::info!("{:?}", settings);
         let record_shortcut = {
             let modifier = settings
                 .shortcuts
@@ -36,22 +36,13 @@ impl ShortcutManager {
                 .as_ref()
                 .ok_or_else(|| AppError::Generic("Record key not set".to_string()))?;
 
-            println!("modifier: {:?}, key: {:?}", modifier, key);
+            log::info!("modifier: {:?}, key: {:?}", modifier, key);
 
             let parsed_key = Code::from_str(key).map_err(|e| {
                 AppError::Generic(format!("Failed to parse shortcut key '{}': {}", key, e))
             })?;
 
             Shortcut::new(Some(parsed_modifier), parsed_key)
-        };
-
-        let recording_pipeline = match &*self.app_state.audio_pipeline.lock() {
-            Some(pipeline) => Arc::clone(pipeline),
-            None => {
-                return Err(AppError::Generic(
-                    "Audio pipeline not initialized".to_string(),
-                ))
-            }
         };
 
         let app_state = Arc::clone(&self.app_state);
@@ -61,15 +52,14 @@ impl ShortcutManager {
                 .with_handler(
                     move |_app_handle: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent| {
                         if shortcut == &record_shortcut {
-                            match event.state {
-                                ShortcutState::Pressed => {
-                                    let _ = app_state
-                                        .runtime
-                                        .block_on(recording_pipeline.start())
-                                        .unwrap();
-                                }
-                                ShortcutState::Released => {
-                                    let _ = app_state.runtime.block_on(recording_pipeline.stop());
+                            if let Some(machine) = &*app_state.state_machine.lock() {
+                                match event.state {
+                                    ShortcutState::Pressed => {
+                                        machine.send_command(AppCommand::StartRecording);
+                                    }
+                                    ShortcutState::Released => {
+                                        machine.send_command(AppCommand::StopRecording);
+                                    }
                                 }
                             }
                         }

@@ -16,7 +16,7 @@ pub fn get_recordings_path(app_handle: &AppHandle) -> PathBuf {
                 .app_data_dir()
                 .expect("Failed to get app data directory");
 
-            println!("App data directory: {:?}", app_dir);
+            log::info!("App data directory: {:?}", app_dir);
             app_dir.join("recordings")
         }
     };

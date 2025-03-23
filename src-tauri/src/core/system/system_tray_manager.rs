@@ -1,57 +1,38 @@
-use crate::{
-    controllers::audio_pipleine_controller::AudioPipelineController,
-    core::{
-        app::AppState,
-        error::{AppError, SystemError},
-    },
+use crate::core::{
+    app::AppState,
+    error::{AppError, SystemError},
+    state_machine::AppCommand,
 };
 use std::sync::Arc;
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Listener, Manager,
+    AppHandle, Manager,
 };
 
 pub struct SystemTrayManager {
     app_handle: AppHandle,
-    recording_pipeline: Arc<AudioPipelineController>,
     app_state: Arc<AppState>,
 }
 
 impl SystemTrayManager {
     pub fn new(state: Arc<AppState>, app_handle: AppHandle) -> Result<Self, AppError> {
-        let recording_pipeline = match &*state.audio_pipeline.lock() {
-            Some(pipeline) => Arc::clone(pipeline),
-            None => {
-                return Err(AppError::Generic(
-                    "Audio pipeline not initialized".to_string(),
-                ))
-            }
-        };
-
         Ok(Self {
             app_handle,
-            recording_pipeline,
             app_state: state,
         })
     }
 
     pub fn setup(&self) -> Result<(), AppError> {
         let tray_menu = self.build_tray_menu(true, false)?;
-        let recording_pipeline = Arc::clone(&self.recording_pipeline);
         let app_state = Arc::clone(&self.app_state);
 
         let _tray = TrayIconBuilder::with_id("tray")
             .icon(self.load_tray_icon()?)
             .menu(&tray_menu)
             .on_menu_event(move |app, event| {
-                Self::handle_tray_menu_event(
-                    app,
-                    &event.id.as_ref(),
-                    &recording_pipeline,
-                    &app_state,
-                );
+                Self::handle_tray_menu_event(app, &event.id.as_ref(), &app_state);
             })
             .build(&self.app_handle)
             .map_err(|e| AppError::Config(format!("Failed to create tray icon: {}", e).into()))?;
@@ -62,52 +43,28 @@ impl SystemTrayManager {
             log::warn!("Tray not found");
         }
 
-        let recording_pipeline_clone = Arc::clone(&self.recording_pipeline);
-        let app_handle_clone = self.app_handle.clone();
-        let app_state_clone = Arc::clone(&self.app_state);
-
-        let _handler = self
-            .app_handle
-            .listen("tauri://close-requested", move |_event| {
-                let pipeline = &recording_pipeline_clone;
-                app_state_clone.runtime.block_on(pipeline.cancel());
-
-                std::thread::sleep(std::time::Duration::from_millis(100));
-
-                if let Some(window) = app_handle_clone.get_webview_window("main") {
-                    let _ = window.close();
-                }
-            });
-
-        let recording_pipeline_for_cancel = Arc::clone(&self.recording_pipeline);
-        let app_state_for_cancel = Arc::clone(&self.app_state);
-        let _cancel_handler = self.app_handle.listen("cancel-recording", move |_| {
-            app_state_for_cancel
-                .runtime
-                .block_on(recording_pipeline_for_cancel.cancel());
-        });
-
         Ok(())
     }
 
-    pub fn handle_tray_menu_event(
-        app: &AppHandle,
-        event_id: &str,
-        recording_pipeline: &AudioPipelineController,
-        app_state: &Arc<AppState>,
-    ) {
+    pub fn handle_tray_menu_event(app: &AppHandle, event_id: &str, app_state: &Arc<AppState>) {
         match event_id {
             "start_recording" => {
-                if let Ok(_) = app_state.runtime.block_on(recording_pipeline.start()) {
-                    if let Some(tray) = app.tray_by_id("tray") {
-                        if let Ok(new_menu) = Self::build_tray_menu_static(app, false, true) {
-                            let _ = tray.set_menu(Some(new_menu));
-                        }
+                log::info!("Start recording requested from tray");
+                if let Some(machine) = &*app_state.state_machine.lock() {
+                    machine.send_command(AppCommand::StartRecording);
+                }
+                if let Some(tray) = app.tray_by_id("tray") {
+                    if let Ok(new_menu) = Self::build_tray_menu_static(app, false, true) {
+                        let _ = tray.set_menu(Some(new_menu));
                     }
                 }
             }
             "stop_recording" => {
-                app_state.runtime.block_on(recording_pipeline.stop());
+                log::info!("Stop recording requested from tray");
+                if let Some(machine) = &*app_state.state_machine.lock() {
+                    machine.send_command(AppCommand::StopRecording);
+                }
+
                 if let Some(tray) = app.tray_by_id("tray") {
                     if let Ok(new_menu) = Self::build_tray_menu_static(app, true, false) {
                         let _ = tray.set_menu(Some(new_menu));
@@ -115,7 +72,9 @@ impl SystemTrayManager {
                 }
             }
             "cancel_recording" => {
-                app_state.runtime.block_on(recording_pipeline.cancel());
+                log::info!("Cancel recording requested from tray");
+                app_state.cancel_current_operation();
+
                 if let Some(tray) = app.tray_by_id("tray") {
                     if let Ok(new_menu) = Self::build_tray_menu_static(app, true, false) {
                         let _ = tray.set_menu(Some(new_menu));
@@ -135,8 +94,11 @@ impl SystemTrayManager {
                 }
             }
             "quit" => {
-                app_state.runtime.block_on(recording_pipeline.cancel());
+                log::info!("Quit requested from tray");
+                app_state.cancel_current_operation();
+
                 std::thread::sleep(std::time::Duration::from_millis(200));
+
                 app.exit(0);
             }
             _ => {}
@@ -217,9 +179,5 @@ impl SystemTrayManager {
         MenuItem::with_id(app, id, label, enabled, None::<&str>).map_err(|e| {
             AppError::Config(format!("Failed to create menu item '{}': {}", id, e).into())
         })
-    }
-
-    pub fn get_pipeline(&self) -> Arc<AudioPipelineController> {
-        Arc::clone(&self.recording_pipeline)
     }
 }

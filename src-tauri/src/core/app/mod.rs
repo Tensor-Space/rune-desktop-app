@@ -28,7 +28,7 @@ impl App {
             .plugin(tauri_plugin_fs::init())
             .plugin(tauri_plugin_opener::init())
             .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {
-                println!("App already running, skipping creation of new instance");
+                log::info!("App already running, skipping creation of new instance");
             }))
             .invoke_handler(tauri::generate_handler![
                 // Audio commands
@@ -61,7 +61,7 @@ impl App {
 
                     let autostart_manager = app.autolaunch();
                     let _ = autostart_manager.enable();
-                    println!(
+                    log::info!(
                         "registered for autostart? {}",
                         autostart_manager.is_enabled().unwrap()
                     );

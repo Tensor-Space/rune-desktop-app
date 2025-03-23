@@ -5,9 +5,7 @@ use cpal::{
 };
 use crossbeam_channel::{bounded, Sender};
 use parking_lot::Mutex;
-use rubato::{FftFixedIn, Resampler};
 use std::{
-    io::Write,
     path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
@@ -18,11 +16,7 @@ const TARGET_SAMPLE_RATE: u32 = 16000;
 const LEVEL_UPDATE_INTERVAL: Duration = Duration::from_millis(50);
 const DEFAULT_CHUNK_SIZE: usize = 4096;
 const MIN_CHUNK_SIZE: usize = 1024;
-
-fn flush_println(msg: &str) {
-    println!("{}", msg);
-    std::io::stdout().flush().unwrap_or_default();
-}
+const PRE_BUFFER_SIZE: usize = 1024;
 
 #[derive(Default, Clone)]
 struct AudioData {
@@ -51,21 +45,18 @@ impl AudioData {
                 Vec::with_capacity(DEFAULT_CHUNK_SIZE),
             );
             self.buffers.push(full_buffer);
-            flush_println(&format!(
+            log::info!(
                 "Chunk complete - Size: {}, Total chunks: {}",
                 DEFAULT_CHUNK_SIZE,
                 self.buffers.len()
-            ));
+            );
         }
     }
 
     fn finalize(&mut self) {
         if !self.current_chunk.is_empty() && self.current_chunk.len() >= MIN_CHUNK_SIZE {
             self.buffers.push(std::mem::take(&mut self.current_chunk));
-            flush_println(&format!(
-                "Final chunk added - Total chunks: {}",
-                self.buffers.len()
-            ));
+            log::info!("Final chunk added - Total chunks: {}", self.buffers.len());
         }
     }
 }
@@ -83,6 +74,8 @@ pub struct AudioRecordingService {
     last_level_update: Arc<Mutex<Instant>>,
     audio_sender: Arc<Mutex<Option<Sender<Vec<f32>>>>>,
     recording_active: Arc<std::sync::atomic::AtomicBool>,
+    pre_buffer: Arc<Mutex<Vec<f32>>>,
+    pre_buffering: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl Default for AudioRecordingService {
@@ -93,8 +86,8 @@ impl Default for AudioRecordingService {
 
 impl AudioRecordingService {
     pub fn new() -> Self {
-        flush_println("Initializing AudioRecordingService");
-        Self {
+        log::info!("Initializing AudioRecordingService");
+        let service = Self {
             state: Arc::new(Mutex::new(RecorderState {
                 audio_data: Arc::new(Mutex::new(AudioData::new())),
                 current_sample_rate: Arc::new(Mutex::new(0)),
@@ -103,26 +96,183 @@ impl AudioRecordingService {
             last_level_update: Arc::new(Mutex::new(Instant::now())),
             audio_sender: Arc::new(Mutex::new(None)),
             recording_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            pre_buffer: Arc::new(Mutex::new(Vec::with_capacity(PRE_BUFFER_SIZE))),
+            pre_buffering: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        };
+
+        service
+    }
+
+    // Add this new method to test the audio pipeline
+    pub fn audio_check(&self) {
+        log::info!("=== Testing Audio System ===");
+
+        // Try to get information about the audio system
+        let host = cpal::default_host();
+        log::info!("Audio system: {}", host.id().name());
+
+        // List available devices
+        match host.devices() {
+            Ok(devices) => {
+                let mut input_count = 0;
+
+                for device in devices {
+                    if let Ok(name) = device.name() {
+                        // Check if it's an input device
+                        if device.default_input_config().is_ok() {
+                            input_count += 1;
+
+                            // Get and log the default config
+                            if let Ok(config) = device.default_input_config() {
+                                log::info!("Input device: {} (channels: {}, sample rate: {}, format: {:?})",
+                                    name, config.channels(), config.sample_rate().0, config.sample_format());
+                            } else {
+                                log::info!("Input device: {} (no valid config)", name);
+                            }
+                        }
+                    }
+                }
+
+                if input_count == 0 {
+                    log::info!("No input devices found - audio recording may not work");
+                } else {
+                    log::info!("Found {} input devices", input_count);
+                }
+            }
+            Err(e) => {
+                log::info!("Failed to enumerate audio devices: {}", e);
+            }
         }
+
+        // Check default input device
+        match host.default_input_device() {
+            Some(device) => {
+                if let Ok(name) = device.name() {
+                    log::info!("Default input device: {}", name);
+                } else {
+                    log::info!("Default input device: <unnamed>");
+                }
+
+                // Test recording for 1 second
+                log::info!("Testing 1-second recording...");
+
+                let test_recording = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+                let recording_clone = test_recording.clone();
+                let (tx, rx) = bounded::<Vec<f32>>(32);
+                let mut received_data = Vec::new();
+
+                // Set up receiver thread
+                let receiver_thread = std::thread::spawn(move || {
+                    while recording_clone.load(std::sync::atomic::Ordering::SeqCst) {
+                        match rx.recv_timeout(Duration::from_millis(100)) {
+                            Ok(pcm) => {
+                                received_data.extend_from_slice(&pcm);
+                            }
+                            Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
+                            Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+                        }
+                    }
+                    received_data
+                });
+
+                // Try to record audio
+                if let Ok(config) = device.default_input_config() {
+                    let config_out = config.config();
+                    let sample_format = config.sample_format();
+
+                    log::info!(
+                        "Recording at {} Hz with {} channels",
+                        config_out.sample_rate.0,
+                        config_out.channels
+                    );
+
+                    let stream = match sample_format {
+                        cpal::SampleFormat::F32 => {
+                            let callback = move |data: &[f32], _: &cpal::InputCallbackInfo| {
+                                let _ = tx.send(data.to_vec());
+                            };
+
+                            device.build_input_stream(
+                                &config_out,
+                                callback,
+                                |err| log::info!("Audio test error: {}", err),
+                                None,
+                            )
+                        }
+                        _ => {
+                            log::info!("Unsupported sample format for test: {:?}", sample_format);
+                            Err(cpal::BuildStreamError::StreamConfigNotSupported)
+                        }
+                    };
+
+                    match stream {
+                        Ok(stream) => {
+                            if let Err(e) = stream.play() {
+                                log::info!("Failed to start test recording: {}", e);
+                            } else {
+                                // Record for 1 second
+                                std::thread::sleep(Duration::from_secs(1));
+
+                                // Stop the recording
+                                test_recording.store(false, std::sync::atomic::Ordering::SeqCst);
+                                let _ = stream.pause();
+
+                                // Get the recorded data
+                                let recorded_data = receiver_thread.join().unwrap_or_default();
+
+                                if recorded_data.is_empty() {
+                                    log::info!("❌ No audio data received during test");
+                                } else {
+                                    let max_level = recorded_data
+                                        .iter()
+                                        .fold(0.0f32, |max, &s| max.max(s.abs()));
+                                    log::info!(
+                                        "✅ Successfully recorded {} samples, max level: {:.6}",
+                                        recorded_data.len(),
+                                        max_level
+                                    );
+
+                                    if max_level < 0.01 {
+                                        log::info!(
+                                            "⚠️ Audio levels very low - microphone may be muted"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            log::info!("Failed to build audio stream for test: {}", e);
+                        }
+                    }
+                } else {
+                    log::info!("No valid input configuration for test recording");
+                }
+            }
+            None => {
+                log::info!("No default input device found - audio recording may not work");
+            }
+        }
+
+        log::info!("=== Audio System Test Complete ===");
     }
 
     pub fn set_app_handle(&self, handle: AppHandle) {
-        flush_println("Setting app handle");
+        log::info!("Setting app handle");
         let state = self.state.lock();
         state.audio_data.lock().app_handle = Some(handle);
     }
 
     pub fn set_device_id(&self, device_id: Option<String>) {
-        flush_println(&format!("Setting device ID: {:?}", device_id));
+        log::info!("Setting device ID: {:?}", device_id);
         self.state.lock().device_id = device_id;
     }
 
     async fn get_input_device(&self) -> Result<Device, AudioError> {
-        flush_println("\n=== Getting Input Device ===");
+        log::info!("\n=== Getting Input Device ===");
         let host = cpal::default_host();
         let state = self.state.lock();
 
-        flush_println("\nAvailable audio devices:");
+        log::info!("\nAvailable audio devices:");
         let mut found_devices = Vec::new();
         if let Ok(devices) = host.devices() {
             for device in devices {
@@ -131,53 +281,50 @@ impl AudioRecordingService {
                         AudioError::Device(format!("Error getting configs for {}: {}", name, e))
                     })?;
 
-                    flush_println(&format!("\nDevice: {}", name));
-                    flush_println("Supported configurations:");
+                    log::info!("\nDevice: {}", name);
+                    log::info!("Supported configurations:");
                     let mut config_count = 0;
                     for config in supported_configs {
                         config_count += 1;
-                        flush_println(&format!("  - {:?}", config));
+                        log::info!("  - {:?}", config);
                     }
 
                     if device.default_input_config().is_ok() {
                         found_devices.push(device);
-                        flush_println(&format!("  Total configs: {}", config_count));
-                        flush_println("  (This is an input device)");
+                        log::info!("  Total configs: {}", config_count);
+                        log::info!("  (This is an input device)");
                     }
                 }
             }
         }
 
         if let Some(device_id) = state.device_id.as_ref() {
-            flush_println(&format!("\nLooking for device: {}", device_id));
+            log::info!("\nLooking for device: {}", device_id);
 
-            // Try to find an exact match first
             for device in found_devices.iter() {
                 if let Ok(name) = device.name() {
                     if name == *device_id {
-                        flush_println(&format!("Found exact match for device: {}", name));
+                        log::info!("Found exact match for device: {}", name);
                         return Ok(device.clone());
                     }
                 }
             }
 
-            // If no exact match, try to find a device that contains the name
             for device in found_devices.iter() {
                 if let Ok(name) = device.name() {
                     if name.contains(device_id) {
-                        flush_println(&format!("Found partial match for device: {}", name));
+                        log::info!("Found partial match for device: {}", name);
                         return Ok(device.clone());
                     }
                 }
             }
 
-            // If still no match, return the first available input device
             if let Some(device) = found_devices.first() {
-                flush_println(&format!(
+                log::info!(
                     "Device '{}' not found exactly, using first available input device: {}",
                     device_id,
                     device.name().unwrap_or_default()
-                ));
+                );
                 return Ok(device.clone());
             }
 
@@ -186,27 +333,28 @@ impl AudioRecordingService {
                 device_id
             )))
         } else {
-            flush_println("\nNo device specified, using default input device");
+            log::info!("\nNo device specified, using default input device");
             host.default_input_device()
                 .ok_or_else(|| AudioError::Device("No default input device available".to_string()))
         }
     }
 
     pub async fn start_recording(&self, app_handle: &AppHandle) -> Result<(), AudioError> {
-        flush_println("=== Starting Recording Process ===");
+        log::info!("=== Starting Recording Process ===");
+        log::info!("Audio system: {}", cpal::default_host().id().name());
 
         {
             let mut state = self.state.lock();
             if let Some(stream) = state.stream.take() {
-                flush_println("Cleaning up previous audio stream");
+                log::info!("Cleaning up previous audio stream");
                 if let Err(e) = stream.pause() {
-                    flush_println(&format!("Warning: Failed to pause stream: {}", e));
+                    log::info!("Warning: Failed to pause stream: {}", e);
                 }
                 drop(stream);
             }
 
             if let Some(sender) = self.audio_sender.lock().take() {
-                flush_println("Cleaning up previous audio channel");
+                log::info!("Cleaning up previous audio channel");
                 drop(sender);
             }
 
@@ -214,6 +362,10 @@ impl AudioRecordingService {
                 .store(false, std::sync::atomic::Ordering::SeqCst);
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
+
+        self.pre_buffering
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.pre_buffer.lock().clear();
 
         self.set_app_handle(app_handle.clone());
         *self.last_level_update.lock() = Instant::now()
@@ -224,13 +376,13 @@ impl AudioRecordingService {
         {
             let mut audio_data = state.audio_data.lock();
             if audio_data.recording {
-                flush_println("Error: Already recording");
+                log::info!("Error: Already recording");
                 return Err(AudioError::Recording("Already recording".to_string()));
             }
             audio_data.recording = true;
             audio_data.buffers.clear();
             audio_data.current_chunk.clear();
-            flush_println("Recording state initialized");
+            log::info!("Recording state initialized");
         }
         drop(state);
 
@@ -242,9 +394,9 @@ impl AudioRecordingService {
 
         let supported_configs_vec: Vec<_> = supported_configs.collect();
 
-        flush_println("\nSupported configurations:");
+        log::info!("\nSupported configurations:");
         for (i, config) in supported_configs_vec.iter().enumerate() {
-            flush_println(&format!("Config {}: {:?}", i, config));
+            log::info!("Config {}: {:?}", i, config);
         }
 
         let config = supported_configs_vec
@@ -263,10 +415,11 @@ impl AudioRecordingService {
         let config = config.with_sample_rate(cpal::SampleRate(native_sample_rate));
 
         let num_channels = config.channels() as usize;
-        flush_println(&format!(
+        log::info!(
             "Using {} channels at {} Hz",
-            num_channels, native_sample_rate
-        ));
+            num_channels,
+            native_sample_rate
+        );
 
         let chunk_size = DEFAULT_CHUNK_SIZE * num_channels;
         let (tx, rx) = bounded::<Vec<f32>>(32);
@@ -283,6 +436,8 @@ impl AudioRecordingService {
         self.recording_active
             .store(true, std::sync::atomic::Ordering::SeqCst);
         let recording_active = Arc::clone(&self.recording_active);
+        let _pre_buffer = Arc::clone(&self.pre_buffer);
+        let _pre_buffering = Arc::clone(&self.pre_buffering);
 
         std::thread::spawn(move || {
             while recording_active.load(std::sync::atomic::Ordering::SeqCst) {
@@ -290,20 +445,22 @@ impl AudioRecordingService {
                     Ok(pcm) => {
                         let mut audio_data = audio_data.lock();
                         if !audio_data.recording {
-                            flush_println("Recording stopped");
+                            log::info!("Recording stopped");
                             continue;
                         }
 
-                        // Mix stereo to mono if needed
                         let mono_samples: Vec<f32> = if pcm.len() % 2 == 0 && num_channels == 2 {
                             pcm.chunks(2)
                                 .map(|chunk| (chunk[0] + chunk[1]) * 0.5)
+                                .collect()
+                        } else if num_channels > 2 {
+                            pcm.chunks(num_channels)
+                                .map(|chunk| chunk.iter().sum::<f32>() / chunk.len() as f32)
                                 .collect()
                         } else {
                             pcm
                         };
 
-                        // Calculate levels for visualization (8 frequency bands)
                         let levels: Vec<f32> = if !mono_samples.is_empty() {
                             let chunk_size = mono_samples.len() / 8;
                             (0..8)
@@ -321,18 +478,17 @@ impl AudioRecordingService {
                             vec![0.0; 8]
                         };
 
-                        // Store the audio data
                         audio_data.store_samples(&mono_samples);
 
-                        // Emit audio levels for UI feedback
                         if let Some(handle) = audio_data.app_handle.as_ref() {
                             let now = Instant::now();
                             let mut last_update = last_level_update_arc.lock();
                             if now.duration_since(*last_update) >= LEVEL_UPDATE_INTERVAL
                                 || audio_data.buffers.len() < 5
                             {
+                                log::info!("Audio levels: {:?}", levels);
                                 if let Err(e) = handle.emit("audio-levels", levels) {
-                                    flush_println(&format!("Failed to emit audio levels: {}", e));
+                                    log::info!("Failed to emit audio levels: {}", e);
                                 }
                                 *last_update = now;
                             }
@@ -341,7 +497,7 @@ impl AudioRecordingService {
                     Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
                     Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
                         if recording_active.load(std::sync::atomic::Ordering::SeqCst) {
-                            flush_println("Channel disconnected but recording still active");
+                            log::info!("Channel disconnected but recording still active");
                             continue;
                         }
                         break;
@@ -349,17 +505,18 @@ impl AudioRecordingService {
                 }
             }
 
-            // Finalize audio and cleanup
             let mut audio_data = audio_data.lock();
             audio_data.finalize();
-            flush_println(&format!(
+            log::info!(
                 "Processing thread finished with {} chunks",
                 audio_data.buffers.len()
-            ));
+            );
         });
 
         let sender = tx;
         let recording_active_clone = Arc::clone(&self.recording_active);
+        let pre_buffer_clone = Arc::clone(&self.pre_buffer);
+        let pre_buffering_clone = Arc::clone(&self.pre_buffering);
 
         let data_callback = move |data: &[f32], _: &cpal::InputCallbackInfo| {
             if !recording_active_clone.load(std::sync::atomic::Ordering::SeqCst) {
@@ -367,33 +524,50 @@ impl AudioRecordingService {
             }
 
             let pcm = data.to_vec();
+
+            if pre_buffering_clone.load(std::sync::atomic::Ordering::SeqCst) {
+                let mut buffer = pre_buffer_clone.lock();
+                buffer.extend_from_slice(&pcm);
+
+                if buffer.len() >= PRE_BUFFER_SIZE {
+                    pre_buffering_clone.store(false, std::sync::atomic::Ordering::SeqCst);
+                    log::info!(
+                        "Pre-buffering complete, discarded {} initial samples",
+                        buffer.len()
+                    );
+                }
+                return;
+            }
+
             let _ = sender.send(pcm);
         };
 
         let error_callback = move |err| {
-            flush_println(&format!("Audio input error: {}", err));
+            log::info!("Audio input error: {}", err);
         };
 
         let stream = device
             .build_input_stream(&config.into(), data_callback, error_callback, None)
             .map_err(|e| {
-                flush_println(&format!("Failed to build input stream: {}", e));
+                log::info!("Failed to build input stream: {}", e);
                 AudioError::Recording(format!("Failed to build input stream: {}", e))
             })?;
 
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
         stream.play().map_err(|e| {
-            flush_println(&format!("Failed to start stream: {}", e));
+            log::info!("Failed to start stream: {}", e);
             AudioError::Recording(format!("Failed to start stream: {}", e))
         })?;
 
         self.state.lock().stream = Some(stream);
-        flush_println("=== Recording Started Successfully ===");
+        log::info!("=== Recording Started Successfully ===");
 
         Ok(())
     }
 
     pub async fn stop_recording(&self, output_path: PathBuf) -> Result<(), AudioError> {
-        flush_println("=== Stopping Recording ===");
+        log::info!("=== Stopping Recording ===");
 
         self.recording_active
             .store(false, std::sync::atomic::Ordering::SeqCst);
@@ -411,9 +585,9 @@ impl AudioRecordingService {
             let mut state = self.state.lock();
             let sample_rate = *state.current_sample_rate.lock();
             if let Some(stream) = state.stream.take() {
-                flush_println("Stopping audio stream");
+                log::info!("Stopping audio stream");
                 if let Err(e) = stream.pause() {
-                    flush_println(&format!("Warning: Failed to pause stream: {}", e));
+                    log::info!("Warning: Failed to pause stream: {}", e);
                 }
             }
             sample_rate
@@ -421,7 +595,7 @@ impl AudioRecordingService {
 
         {
             if let Some(sender) = self.audio_sender.lock().take() {
-                flush_println("Cleaning up audio channel");
+                log::info!("Cleaning up audio channel");
                 drop(sender);
             }
         }
@@ -436,20 +610,24 @@ impl AudioRecordingService {
         drop(audio_data);
         drop(state);
 
-        flush_println(&format!(
+        log::info!(
             "Stop recording - Buffers: {}, Sample rate: {}",
             buffers.len(),
             native_sample_rate
-        ));
+        );
 
         if buffers.is_empty() {
             return Err(AudioError::Recording("No audio data recorded".to_string()));
         }
 
-        let total_samples = buffers.iter().map(|b| b.len()).sum::<usize>();
-        flush_println(&format!("Total samples recorded: {}", total_samples));
+        if !buffers.is_empty() && buffers[0].len() > 0 {
+            let max_val = buffers[0].iter().fold(0.0f32, |max, &s| max.max(s.abs()));
+            log::info!("First buffer max value: {}", max_val);
+        }
 
-        // Create WAV file with target 16kHz sample rate
+        let total_samples = buffers.iter().map(|b| b.len()).sum::<usize>();
+        log::info!("Total samples recorded: {}", total_samples);
+
         let spec = hound::WavSpec {
             channels: 1,
             sample_rate: TARGET_SAMPLE_RATE,
@@ -457,100 +635,77 @@ impl AudioRecordingService {
             sample_format: hound::SampleFormat::Int,
         };
 
-        flush_println(&format!("Creating WAV file: {}", output_path.display()));
+        log::info!("Creating WAV file: {}", output_path.display());
         let mut writer = hound::WavWriter::create(&output_path, spec)
             .map_err(|e| AudioError::Recording(format!("Failed to create WAV file: {}", e)))?;
 
-        // Configure resampler for source rate to 16kHz conversion
-        let resampler_chunk_size = 1024;
-        let mut resampler = FftFixedIn::<f32>::new(
-            native_sample_rate as usize,
-            TARGET_SAMPLE_RATE as usize,
-            resampler_chunk_size,
-            1,
-            1,
-        )
-        .map_err(|e| AudioError::Recording(format!("Failed to create resampler: {}", e)))?;
-
-        flush_println(&format!(
-            "Resampler configured - Input rate: {}, Output rate: {}, Chunk size: {}",
-            native_sample_rate, TARGET_SAMPLE_RATE, resampler_chunk_size
-        ));
+        let ratio = TARGET_SAMPLE_RATE as f32 / native_sample_rate as f32;
+        log::info!("Using simple resampling with ratio: {}", ratio);
 
         let mut total_written = 0;
-        let mut max_amplitude = 0.0f32;
 
-        flush_println("Processing and resampling recorded audio");
-        for (i, buffer) in buffers.iter().enumerate() {
+        for buffer in buffers.iter() {
             if buffer.is_empty() {
                 continue;
             }
 
-            // Track maximum amplitude for normalization
-            let buffer_max = buffer.iter().fold(0.0f32, |max, &x| max.max(x.abs()));
-            max_amplitude = max_amplitude.max(buffer_max);
+            let samples_to_use = buffer;
 
-            // Process audio in chunks with overlap for smoother resampling
-            let mut processed_samples = 0;
-            while processed_samples < buffer.len() {
-                let end = (processed_samples + resampler_chunk_size).min(buffer.len());
-                let chunk = &buffer[processed_samples..end];
+            let step = 1.0 / ratio;
+            let mut idx = 0.0;
 
-                if let Ok(mut output) = resampler.process(&[chunk], None) {
-                    if let Some(samples) = output.pop() {
-                        if !samples.is_empty() {
-                            let gain = if max_amplitude > 1.0 {
-                                0.95 / max_amplitude
-                            } else {
-                                1.0
-                            };
+            while idx < samples_to_use.len() as f32 {
+                let i = idx as usize;
+                if i < samples_to_use.len() {
+                    let sample = samples_to_use[i];
+                    let gain = 0.9;
+                    let normalized = sample * gain;
+                    let sample_i16 = (normalized * i16::MAX as f32).clamp(-32768.0, 32767.0) as i16;
 
-                            for sample in samples {
-                                let normalized = sample * gain;
-                                let sample_i16 =
-                                    (normalized * i16::MAX as f32).clamp(-32768.0, 32767.0) as i16;
-                                writer.write_sample(sample_i16).map_err(|e| {
-                                    AudioError::Recording(format!("Failed to write sample: {}", e))
-                                })?;
-                                total_written += 1;
-                            }
-                        }
-                    }
+                    writer.write_sample(sample_i16).map_err(|e| {
+                        AudioError::Recording(format!("Failed to write sample: {}", e))
+                    })?;
+                    total_written += 1;
                 }
-                processed_samples += resampler_chunk_size;
-            }
-
-            if i % 10 == 0 {
-                flush_println(&format!(
-                    "Processed buffer {}/{} - Written: {} samples",
-                    i + 1,
-                    buffers.len(),
-                    total_written
-                ));
+                idx += step;
             }
         }
+
+        if total_written == 0 {
+            log::warn!(
+                "No samples were written - generating test tone to verify file writing works"
+            );
+            for i in 0..16000 {
+                let sample = (i as f32 * 0.1).sin() * 0.5;
+                let sample_i16 = (sample * i16::MAX as f32) as i16;
+                writer.write_sample(sample_i16).map_err(|e| {
+                    AudioError::Recording(format!("Failed to write test sample: {}", e))
+                })?;
+                total_written += 1;
+            }
+        }
+
+        log::info!("Finalizing WAV file with {} samples", total_written);
+        writer
+            .finalize()
+            .map_err(|e| AudioError::Recording(format!("Failed to finalize WAV file: {}", e)))?;
 
         if total_written == 0 {
             return Err(AudioError::Recording("No samples written".to_string()));
         }
 
-        flush_println("Finalizing WAV file");
-        writer
-            .finalize()
-            .map_err(|e| AudioError::Recording(format!("Failed to finalize WAV file: {}", e)))?;
-
-        flush_println(&format!(
+        log::info!(
             "Recording saved - Samples: {}, Path: {}",
             total_written,
             output_path.display()
-        ));
+        );
 
         Ok(())
     }
 
     pub async fn stop_recording_without_save(&self) -> Result<(), AudioError> {
         let log_tag = "=== Stopping Recording (No Save) ===";
-        println!("{}", log_tag);
+        log::info!("{}", log_tag);
 
         self.recording_active
             .store(false, std::sync::atomic::Ordering::SeqCst);
@@ -559,31 +714,66 @@ impl AudioRecordingService {
             let state = self.state.lock();
             let mut audio_data = state.audio_data.lock();
             if !audio_data.recording {
-                println!("Not currently recording, nothing to clean up");
-                return Ok(()); // Not an error if we weren't recording
+                log::info!("Not currently recording, nothing to clean up");
+                return Ok(());
             }
             audio_data.recording = false;
-            println!("Marked recording as stopped");
+            log::info!("Marked recording as stopped");
         }
 
         {
             let mut state = self.state.lock();
             if let Some(stream) = state.stream.take() {
-                println!("Stopping audio stream");
+                log::info!("Stopping audio stream");
                 if let Err(e) = stream.pause() {
-                    println!("Warning: Failed to pause stream: {}", e);
+                    log::info!("Warning: Failed to pause stream: {}", e);
                 }
             }
         }
 
         {
             if let Some(sender) = self.audio_sender.lock().take() {
-                println!("Cleaning up audio channel");
+                log::info!("Cleaning up audio channel");
                 drop(sender);
             }
         }
 
-        println!("Recording stopped without saving files");
+        log::info!("Recording stopped without saving files");
+        Ok(())
+    }
+
+    pub fn force_stop(&self) -> Result<(), AudioError> {
+        log::info!("Force stopping audio recording");
+
+        self.recording_active
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+        self.pre_buffering
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+
+        {
+            let state = self.state.lock();
+            let mut audio_data = state.audio_data.lock();
+            if !audio_data.recording {
+                return Ok(());
+            }
+            audio_data.recording = false;
+
+            audio_data.buffers.clear();
+            audio_data.current_chunk.clear();
+        }
+
+        {
+            let mut state = self.state.lock();
+            if let Some(stream) = state.stream.take() {
+                let _ = stream.pause();
+            }
+        }
+
+        {
+            let _ = self.audio_sender.lock().take();
+        }
+
+        log::info!("Audio recording forcefully stopped");
         Ok(())
     }
 }

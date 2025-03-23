@@ -8,8 +8,8 @@ use crate::core::{
 };
 use log::error;
 use std::sync::Arc;
-use tauri::LogicalPosition;
 use tauri::{App as TauriApp, Manager};
+use tauri::{Listener, LogicalPosition};
 use tauri_plugin_store::StoreExt;
 
 const SETTINGS_FILE: &str = "settings.json";
@@ -17,13 +17,17 @@ const SETTINGS_FILE: &str = "settings.json";
 pub fn setup_app(app: &TauriApp, state: Arc<AppState>) -> Result<(), AppError> {
     setup_settings(app, &state)?;
 
+    state.init_state_machine(app.app_handle().clone());
+
     initialize_audio_pipeline(app, &state)?;
 
     configure_main_window(app)?;
 
     setup_shortcuts(app, &state)?;
 
-    setup_system_tray(app, state)?;
+    setup_system_tray(app, state.clone())?;
+
+    setup_event_listeners(app, state.clone())?;
 
     Ok(())
 }
@@ -95,6 +99,30 @@ fn initialize_audio_pipeline(app: &TauriApp, state: &Arc<AppState>) -> Result<()
     ));
 
     *state.audio_pipeline.lock() = Some(audio_pipeline);
+
+    Ok(())
+}
+
+fn setup_event_listeners(app: &TauriApp, state: Arc<AppState>) -> Result<(), AppError> {
+    let state_clone = state.clone();
+    app.listen("cancel-recording", move |_| {
+        log::info!("Cancel event received");
+        state_clone.cancel_current_operation();
+    });
+
+    let state_clone = state.clone();
+    let app_handle = app.app_handle().clone();
+    app.listen("tauri://close-requested", move |_event| {
+        log::info!("Close requested");
+
+        state_clone.cancel_current_operation();
+
+        std::thread::sleep(std::time::Duration::from_millis(200));
+
+        if let Some(window) = app_handle.get_webview_window("main") {
+            let _ = window.close();
+        }
+    });
 
     Ok(())
 }

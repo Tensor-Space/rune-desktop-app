@@ -43,8 +43,8 @@ impl TextTranscriptHistoryService {
             .map_err(|e| AudioError::Transcription(format!("Failed to save history: {}", e)))?;
 
         match app_handle.emit("transcription-added", serde_json::json!(new_entry)) {
-            Ok(_) => println!("Successfully emitted transcription-added event"),
-            Err(e) => eprintln!("Failed to emit transcription-added event: {}", e),
+            Ok(_) => log::info!("Successfully emitted transcription-added event"),
+            Err(e) => log::error!("Failed to emit transcription-added event: {}", e),
         }
 
         if let Some(history_window) = app_handle.get_webview_window("history") {
