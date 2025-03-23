@@ -22,7 +22,7 @@ impl TextProcessorPipeline {
         let processed_text = if action_required {
             TextGenerator::generate(&llm_client, app_name, text).await?
         } else {
-            TextTransformer::transform(&llm_client, app_name, text).await?
+            TextTransformer::transform(text).await?
         };
 
         Ok(processed_text)

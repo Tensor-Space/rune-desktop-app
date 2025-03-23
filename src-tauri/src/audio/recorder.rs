@@ -1,3 +1,4 @@
+use crate::audio::transcriber::{AudioTranscriber, TranscriptionMessage};
 use crate::core::error::AudioError;
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
@@ -8,7 +9,11 @@ use parking_lot::Mutex;
 use rubato::{FftFixedIn, Resampler};
 use std::{
     io::Write,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread,
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter};
@@ -29,6 +34,7 @@ struct AudioData {
     app_handle: Option<AppHandle>,
     buffers: Vec<Vec<f32>>,
     current_chunk: Vec<f32>,
+    transcriber: Option<Arc<Mutex<AudioTranscriber>>>,
 }
 
 impl AudioData {
@@ -38,6 +44,7 @@ impl AudioData {
             app_handle: None,
             buffers: Vec::new(),
             current_chunk: Vec::with_capacity(DEFAULT_CHUNK_SIZE),
+            transcriber: None,
         }
     }
 
@@ -81,7 +88,8 @@ pub struct AudioRecorder {
     state: Arc<Mutex<RecorderState>>,
     last_level_update: Arc<Mutex<Instant>>,
     audio_sender: Arc<Mutex<Option<Sender<Vec<f32>>>>>,
-    recording_active: Arc<std::sync::atomic::AtomicBool>,
+    recording_active: Arc<AtomicBool>,
+    live_transcriptions: Arc<Mutex<Vec<String>>>,
 }
 
 impl Default for AudioRecorder {
@@ -100,7 +108,8 @@ impl AudioRecorder {
             })),
             last_level_update: Arc::new(Mutex::new(Instant::now())),
             audio_sender: Arc::new(Mutex::new(None)),
-            recording_active: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            recording_active: Arc::new(AtomicBool::new(false)),
+            live_transcriptions: Arc::new(Mutex::new(Vec::new())),
         }
     }
 
@@ -113,6 +122,11 @@ impl AudioRecorder {
     pub fn set_device_id(&self, device_id: Option<String>) {
         flush_println(&format!("Setting device ID: {:?}", device_id));
         self.state.lock().device_id = device_id;
+    }
+
+    pub fn set_transcriber(&self, transcriber: Arc<Mutex<AudioTranscriber>>) {
+        let state = self.state.lock();
+        state.audio_data.lock().transcriber = Some(transcriber);
     }
 
     async fn get_input_device(&self) -> Result<Device, AudioError> {
@@ -149,7 +163,6 @@ impl AudioRecorder {
         if let Some(device_id) = state.device_id.as_ref() {
             flush_println(&format!("\nLooking for device: {}", device_id));
 
-            // Try to find an exact match first
             for device in found_devices.iter() {
                 if let Ok(name) = device.name() {
                     if name == *device_id {
@@ -159,7 +172,6 @@ impl AudioRecorder {
                 }
             }
 
-            // If no exact match, try to find a device that contains the name
             for device in found_devices.iter() {
                 if let Ok(name) = device.name() {
                     if name.contains(device_id) {
@@ -169,7 +181,6 @@ impl AudioRecorder {
                 }
             }
 
-            // If still no match, return the first available input device
             if let Some(device) = found_devices.first() {
                 flush_println(&format!(
                     "Device '{}' not found exactly, using first available input device: {}",
@@ -190,6 +201,77 @@ impl AudioRecorder {
         }
     }
 
+    pub async fn start_recording_with_transcription(
+        &self,
+        app_handle: &AppHandle,
+        transcriber: Arc<Mutex<AudioTranscriber>>,
+    ) -> Result<(), AudioError> {
+        flush_println("=== Starting Recording Process with Live Transcription ===");
+        self.set_transcriber(transcriber.clone());
+        let result = self.start_recording(app_handle).await;
+        if result.is_err() {
+            return result;
+        }
+
+        let transcriber_guard = transcriber.lock();
+
+        if let Err(e) = transcriber_guard.start_streaming().await {
+            log::error!("Failed to start transcription streaming: {}", e);
+            return Err(AudioError::Recording(format!(
+                "Failed to start transcription: {}",
+                e
+            )));
+        }
+
+        drop(transcriber_guard);
+
+        let transcriber_clone = transcriber.clone();
+        let app_handle_clone = app_handle.clone();
+        let live_transcriptions = self.live_transcriptions.clone();
+        let recording_active = Arc::clone(&self.recording_active);
+
+        thread::spawn(move || loop {
+            let transcriber_guard = transcriber_clone.lock();
+
+            if let Some(message) = transcriber_guard.try_receive_message() {
+                match message {
+                    TranscriptionMessage::Interim(text) => {
+                        if let Err(e) = app_handle_clone.emit("transcription-update", &text) {
+                            log::error!("Failed to emit transcription update: {}", e);
+                        }
+                    }
+                    TranscriptionMessage::Final(text) => {
+                        live_transcriptions.lock().push(text.clone());
+
+                        if let Err(e) = app_handle_clone.emit("transcription-final", &text) {
+                            log::error!("Failed to emit final transcription: {}", e);
+                        }
+                    }
+                    TranscriptionMessage::Error(error) => {
+                        log::error!("Transcription error: {}", error);
+                        if let Err(e) = app_handle_clone.emit("transcription-error", &error) {
+                            log::error!("Failed to emit transcription error: {}", e);
+                        }
+                    }
+                    TranscriptionMessage::Complete => {
+                        log::info!("Transcription complete");
+                        return;
+                    }
+                }
+            }
+
+            drop(transcriber_guard);
+
+            if !recording_active.load(Ordering::SeqCst) {
+                return;
+            }
+
+            thread::sleep(Duration::from_millis(100));
+        });
+
+        Ok(())
+    }
+
     pub async fn start_recording(&self, app_handle: &AppHandle) -> Result<(), AudioError> {
         flush_println("=== Starting Recording Process ===");
 
@@ -208,8 +290,7 @@ impl AudioRecorder {
                 drop(sender);
             }
 
-            self.recording_active
-                .store(false, std::sync::atomic::Ordering::SeqCst);
+            self.recording_active.store(false, Ordering::SeqCst);
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
 
@@ -275,20 +356,18 @@ impl AudioRecorder {
         drop(state);
 
         let last_level_update_arc = Arc::clone(&self.last_level_update);
-        self.recording_active
-            .store(true, std::sync::atomic::Ordering::SeqCst);
+        self.recording_active.store(true, Ordering::SeqCst);
         let recording_active = Arc::clone(&self.recording_active);
 
         std::thread::spawn(move || {
-            while recording_active.load(std::sync::atomic::Ordering::SeqCst) {
+            while recording_active.load(Ordering::SeqCst) {
                 match rx.recv_timeout(Duration::from_millis(100)) {
                     Ok(pcm) => {
-                        let mut audio_data = audio_data.lock();
-                        if !audio_data.recording {
+                        let mut audio_data_guard = audio_data.lock();
+                        if !audio_data_guard.recording {
                             continue;
                         }
 
-                        // Mix stereo to mono if needed
                         let mono_samples: Vec<f32> = if pcm.len() % 2 == 0 && num_channels == 2 {
                             pcm.chunks(2)
                                 .map(|chunk| (chunk[0] + chunk[1]) * 0.5)
@@ -297,7 +376,6 @@ impl AudioRecorder {
                             pcm
                         };
 
-                        // Calculate levels for visualization (8 frequency bands)
                         let levels: Vec<f32> = if !mono_samples.is_empty() {
                             let chunk_size = mono_samples.len() / 8;
                             (0..8)
@@ -315,11 +393,30 @@ impl AudioRecorder {
                             vec![0.0; 8]
                         };
 
-                        // Store the audio data
-                        audio_data.store_samples(&mono_samples);
+                        audio_data_guard.store_samples(&mono_samples);
 
-                        // Emit audio levels for UI feedback
-                        if let Some(handle) = audio_data.app_handle.as_ref() {
+                        let transcriber_option = audio_data_guard.transcriber.clone();
+                        let audio_bytes = convert_pcm_for_deepgram(&mono_samples);
+
+                        let app_handle_ref = audio_data_guard.app_handle.clone();
+
+                        drop(audio_data_guard);
+
+                        if let Some(transcriber) = transcriber_option {
+                            let audio_bytes_clone = audio_bytes.clone();
+                            let transcriber_clone = transcriber.clone();
+
+                            std::thread::spawn(move || {
+                                let transcriber_guard = transcriber_clone.lock();
+                                if let Err(e) =
+                                    transcriber_guard.send_audio_chunk(audio_bytes_clone)
+                                {
+                                    log::error!("Failed to send audio to transcriber: {}", e);
+                                }
+                            });
+                        }
+
+                        if let Some(handle) = app_handle_ref {
                             let now = Instant::now();
                             let mut last_update = last_level_update_arc.lock();
                             if now.duration_since(*last_update) >= LEVEL_UPDATE_INTERVAL {
@@ -332,7 +429,7 @@ impl AudioRecorder {
                     }
                     Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
                     Err(crossbeam_channel::RecvTimeoutError::Disconnected) => {
-                        if recording_active.load(std::sync::atomic::Ordering::SeqCst) {
+                        if recording_active.load(Ordering::SeqCst) {
                             flush_println("Channel disconnected but recording still active");
                             continue;
                         }
@@ -341,12 +438,11 @@ impl AudioRecorder {
                 }
             }
 
-            // Finalize audio and cleanup
-            let mut audio_data = audio_data.lock();
-            audio_data.finalize();
+            let mut audio_data_guard = audio_data.lock();
+            audio_data_guard.finalize();
             flush_println(&format!(
                 "Processing thread finished with {} chunks",
-                audio_data.buffers.len()
+                audio_data_guard.buffers.len()
             ));
         });
 
@@ -354,7 +450,7 @@ impl AudioRecorder {
         let recording_active_clone = Arc::clone(&self.recording_active);
 
         let data_callback = move |data: &[f32], _: &cpal::InputCallbackInfo| {
-            if !recording_active_clone.load(std::sync::atomic::Ordering::SeqCst) {
+            if !recording_active_clone.load(Ordering::SeqCst) {
                 return;
             }
 
@@ -387,17 +483,23 @@ impl AudioRecorder {
     pub async fn stop_recording(&self, output_path: std::path::PathBuf) -> Result<(), AudioError> {
         flush_println("=== Stopping Recording ===");
 
-        self.recording_active
-            .store(false, std::sync::atomic::Ordering::SeqCst);
+        self.recording_active.store(false, Ordering::SeqCst);
 
-        {
-            let state = self.state.lock();
-            let mut audio_data = state.audio_data.lock();
-            if !audio_data.recording {
-                return Err(AudioError::Recording("Not currently recording".to_string()));
+        let state = self.state.lock();
+        if let Some(transcriber) = &state.audio_data.lock().transcriber {
+            let transcriber_guard = transcriber.lock();
+
+            if let Err(e) = transcriber_guard.end_streaming() {
+                log::warn!("Error ending transcription stream: {}", e);
             }
-            audio_data.recording = false;
         }
+
+        let mut audio_data = state.audio_data.lock();
+        if !audio_data.recording {
+            return Err(AudioError::Recording("Not currently recording".to_string()));
+        }
+        audio_data.recording = false;
+        drop(audio_data);
 
         let native_sample_rate = {
             let mut state = self.state.lock();
@@ -441,7 +543,6 @@ impl AudioRecorder {
         let total_samples = buffers.iter().map(|b| b.len()).sum::<usize>();
         flush_println(&format!("Total samples recorded: {}", total_samples));
 
-        // Create WAV file with target 16kHz sample rate
         let spec = hound::WavSpec {
             channels: 1,
             sample_rate: TARGET_SAMPLE_RATE,
@@ -453,7 +554,6 @@ impl AudioRecorder {
         let mut writer = hound::WavWriter::create(&output_path, spec)
             .map_err(|e| AudioError::Recording(format!("Failed to create WAV file: {}", e)))?;
 
-        // Configure resampler for source rate to 16kHz conversion
         let resampler_chunk_size = 1024;
         let mut resampler = FftFixedIn::<f32>::new(
             native_sample_rate as usize,
@@ -478,11 +578,9 @@ impl AudioRecorder {
                 continue;
             }
 
-            // Track maximum amplitude for normalization
             let buffer_max = buffer.iter().fold(0.0f32, |max, &x| max.max(x.abs()));
             max_amplitude = max_amplitude.max(buffer_max);
 
-            // Process audio in chunks with overlap for smoother resampling
             let mut processed_samples = 0;
             while processed_samples < buffer.len() {
                 let end = (processed_samples + resampler_chunk_size).min(buffer.len());
@@ -539,6 +637,21 @@ impl AudioRecorder {
 
         Ok(())
     }
+
+    pub fn get_live_transcriptions(&self) -> Vec<String> {
+        self.live_transcriptions.lock().clone()
+    }
+}
+
+fn convert_pcm_for_deepgram(pcm_data: &[f32]) -> Vec<u8> {
+    let mut audio_bytes = Vec::with_capacity(pcm_data.len() * 2);
+
+    for &sample in pcm_data {
+        let sample_i16 = (sample * 32767.0).clamp(-32768.0, 32767.0) as i16;
+        audio_bytes.extend_from_slice(&sample_i16.to_le_bytes());
+    }
+
+    audio_bytes
 }
 
 unsafe impl Send for AudioRecorder {}

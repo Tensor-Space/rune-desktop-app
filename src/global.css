@@ -131,3 +131,12 @@
     user-select: none;
     cursor: move;
 }
+
+body,
+html {
+    background: transparent;
+}
+
+#root {
+    background: transparent !important;
+}

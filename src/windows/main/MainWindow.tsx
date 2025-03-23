@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { AlertCircle } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { X, GripVertical } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 type TranscriptionStatus = "idle" | "started" | "completed" | "error";
 
@@ -11,8 +11,16 @@ function MainWindow() {
   const [hasMicPermission, setHasMicPermission] = useState<boolean | null>(
     null,
   );
-  const [transcriptionStatus, setTranscriptionStatus] =
-    useState<TranscriptionStatus>("idle");
+  const [, setTranscriptionStatus] = useState<TranscriptionStatus>("idle");
+
+  const stopRecording = useCallback(async () => {
+    try {
+      await invoke("stop_recording");
+      await getCurrentWindow().hide();
+    } catch (error) {
+      console.error("Error stopping recording:", error);
+    }
+  }, []);
 
   useEffect(() => {
     const requestMic = async () => {
@@ -32,13 +40,11 @@ function MainWindow() {
     // Listen for audio levels
     const unlisten = listen("audio-levels", (event: any) => {
       const newLevels = event.payload as number[];
-      console.log("Received audio levels:", newLevels);
-
       if (Array.isArray(newLevels) && newLevels.length === 8) {
         // Apply some smoothing to prevent jarring transitions
         setLevels((prevLevels) =>
           newLevels.map((level, i) => {
-            const smoothingFactor = 0.7; // Adjust this value to change smoothing amount
+            const smoothingFactor = 0.7;
             return (
               level * smoothingFactor + prevLevels[i] * (1 - smoothingFactor)
             );
@@ -54,57 +60,69 @@ function MainWindow() {
       },
     );
 
+    // Register Escape key shortcut
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        stopRecording();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
     return () => {
       unlisten.then((unlistenFn) => unlistenFn());
       unlistenTranscriptionStatus.then((unlistenFn) => unlistenFn());
+      window.removeEventListener("keydown", handleKeyDown);
     };
-  }, []);
+  }, [stopRecording]);
 
   if (hasMicPermission === false) {
     return (
-      <div className="p-2 bg-gray-900">
-        <Alert variant="destructive" className="py-2">
-          <AlertCircle className="h-4 w-4" />
-          <AlertDescription>
-            Please enable microphone access to continue
-          </AlertDescription>
-        </Alert>
+      <div className="p-2 bg-black rounded-full">
+        <div className="text-white text-sm px-4 py-2">
+          Please enable microphone access to continue
+        </div>
       </div>
     );
   }
 
   return (
-    <div
-      className={cn(
-        "relative h-screen w-screen bg-gray-900 border-2 border-transparent rounded-lg",
-        transcriptionStatus === "started" && "animate-border",
-        transcriptionStatus === "completed" && "border-transparent",
-        transcriptionStatus === "error" && "border-transparent",
-        transcriptionStatus === "idle" && "border-transparent",
-      )}
-    >
-      <main className="h-full w-full p-3">
-        <div className="flex h-full items-end justify-center gap-1">
+    <div className="h-screen w-screen bg-transparent">
+      <div className="flex items-center justify-between bg-[#1C1C1C] rounded-full px-3 py-1 w-auto max-w-[300px] h-10 border-2 border-[#FFFFFF]/10">
+        {/* Menu button */}
+        <button
+          className="text-gray-400 hover:text-white p-1"
+          data-tauri-drag-region
+        >
+          <GripVertical size={18} />
+        </button>
+
+        {/* Audio visualizer */}
+        <div className="flex items-center gap-[2px] h-8">
           {levels.map((level, index) => {
-            // Calculate a color based on the level intensity
-            const intensity = Math.min(1, level * 2);
-            const hue = 200 + intensity * 60; // Range from blue to purple
-            const lightness = 40 + intensity * 20; // Brighter as level increases
+            // Calculate height based on audio level
+            const height = Math.max(10, Math.min(60, level * 2000));
 
             return (
               <div
                 key={index}
-                className="w-12 rounded-t-lg transition-all duration-75 ease-out"
+                className="w-[3px] rounded-sm transition-all duration-75 ease-out bg-green-500"
                 style={{
-                  height: `${Math.max(2, Math.min(100, level * 1000))}%`,
-                  backgroundColor: `hsl(${hue}, 100%, ${lightness}%)`,
-                  boxShadow: `0 0 ${10 + intensity * 10}px hsl(${hue}, 100%, ${lightness}%)`,
+                  height: `${height}%`,
                 }}
               />
             );
           })}
         </div>
-      </main>
+
+        {/* Close button */}
+        <button
+          onClick={stopRecording}
+          className="text-gray-400 hover:text-white p-1"
+        >
+          <X size={18} />
+        </button>
+      </div>
     </div>
   );
 }
