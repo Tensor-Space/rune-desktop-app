@@ -1,4 +1,4 @@
-use std::{process::Command, sync::Arc, thread};
+use std::{process::Command, sync::Arc, thread, path::PathBuf};
 
 use crate::{
     audio::{AudioRecorder, AudioTranscriber},
@@ -45,20 +45,48 @@ impl RecordingPipeline {
     pub fn new(state: Arc<AppState>, app_handle: AppHandle) -> Self {
         let recorder = Arc::new(Mutex::new(AudioRecorder::new()));
 
+        // Ensure we resolve the model directory properly
         let resource_dir = app_handle
             .path()
             .resolve("models/whisper-base", BaseDirectory::Resource)
             .ok();
 
-        let transcriber = match AudioTranscriber::new(resource_dir) {
+        println!("Using model directory: {:?}", resource_dir);
+
+        let transcriber = match AudioTranscriber::new(resource_dir, Some(app_handle.clone())) {
             Ok(t) => Arc::new(Mutex::new(t)),
             Err(e) => {
                 log::error!("Failed to create transcriber with custom path: {}", e);
-                // Fallback to default path
-                match AudioTranscriber::new(None) {
+                
+                // Try to find model in common locations as a fallback
+                let fallback_paths = [
+                    dirs::data_dir().map(|p| p.join("rune/models/whisper-base")),
+                    Some(PathBuf::from("./models/whisper-base")),
+                    Some(PathBuf::from("../models/whisper-base")),
+                ];
+                
+                for path in fallback_paths.iter().flatten() {
+                    if path.exists() {
+                        log::info!("Trying fallback model path: {:?}", path);
+                        if let Ok(t) = AudioTranscriber::new(Some(path.clone()), Some(app_handle.clone())) {
+                            return Self {
+                                state,
+                                previous_app: parking_lot::Mutex::new(None),
+                                app_handle,
+                                recorder,
+                                transcriber: Arc::new(Mutex::new(t)),
+                            };
+                        }
+                    }
+                }
+                
+                // Last resort - create a transcriber without a model
+                // It won't be able to transcribe but can handle history operations
+                log::warn!("Creating transcriber without model - will not be able to transcribe");
+                match AudioTranscriber::new(None, Some(app_handle.clone())) {
                     Ok(t) => Arc::new(Mutex::new(t)),
                     Err(e) => {
-                        log::error!("Failed to create transcriber with default path: {}", e);
+                        log::error!("Failed to create transcriber: {}", e);
                         panic!("Cannot initialize transcriber: {}", e);
                     }
                 }
@@ -224,9 +252,13 @@ impl RecordingPipeline {
                                 }
 
                                 // Inject the processed text
-                                if let Err(e) = TextProcessorPipeline::inject_text(&processed_text)
-                                {
+                                if let Err(e) = TextProcessorPipeline::inject_text(&processed_text) {
                                     log::error!("Failed to inject text: {}", e);
+                                }
+
+                                // Save the processed text to history
+                                if let Err(e) = transcriber.lock().save_processed_text(&app_handle, &processed_text) {
+                                    log::error!("Failed to save processed text to history: {}", e);
                                 }
 
                                 // Update UI status to completed and hide window
@@ -235,14 +267,25 @@ impl RecordingPipeline {
                                         "audio-processing-status",
                                         ProcessingStatus::Completed.as_str(),
                                     )
-                                    .unwrap_or_else(|e| {
-                                        log::error!("Failed to emit status: {}", e)
-                                    });
+                                    .unwrap_or_else(|e| log::error!("Failed to emit status: {}", e));
 
                                 if let Some(window) = app_handle.get_webview_window("main") {
                                     window.hide().unwrap_or_else(|e| {
                                         log::error!("Failed to hide window: {}", e)
                                     });
+                                }
+
+                                // Update history window if it's open
+                                if let Some(_history_window) = app_handle.get_webview_window("history") {
+                                    // Instead of checking if the window is visible, just emit a global event
+                                    // This will be picked up by any open history windows
+                                    // We already emit the transcription-added event in save_transcription,
+                                    // but emit a refresh event as a fallback
+                                    if let Err(e) = app_handle.emit("refresh-history", ()) {
+                                        log::error!("Failed to emit history refresh event: {}", e);
+                                    } else {
+                                        log::info!("Emitted history refresh event");
+                                    }
                                 }
                             }
                             Err(e) => {

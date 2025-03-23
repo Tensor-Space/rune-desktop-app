@@ -8,10 +8,7 @@ use crate::{
 pub use state::AppState;
 use std::sync::Arc;
 use tauri::{
-    image::Image,
-    menu::{Menu, MenuItem, PredefinedMenuItem},
-    tray::TrayIconBuilder,
-    Manager, WebviewUrl, WebviewWindowBuilder,
+    image::Image, menu::{Menu, MenuItem, PredefinedMenuItem}, tray::TrayIconBuilder, Manager, WebviewUrl, WebviewWindowBuilder
 };
 use tauri_plugin_store::StoreExt;
 use tokio::runtime::Runtime;
@@ -49,6 +46,7 @@ impl App {
                 commands::audio_commands::get_devices,
                 commands::audio_commands::set_default_device,
                 commands::audio_commands::get_default_device,
+                commands::audio_commands::get_transcription_history,
                 // System commands
                 commands::system_commands::check_accessibility_permissions,
                 commands::system_commands::request_accessibility_permissions,
@@ -123,6 +121,16 @@ impl App {
         let _settings_window = settings_win_builder.build()?;
         // WindowStyler::remove_titlebar(settings_window)?;
 
+        // Create the history window
+        let history_win_builder =
+            WebviewWindowBuilder::new(app, "history", WebviewUrl::App("history".into()))
+                .title("Rune History")
+                .visible(false)
+                .inner_size(800.0, 600.0)
+                .hidden_title(true);
+
+        let _history_window = history_win_builder.build()?;
+
         let win_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
             .title("Rune")
             .inner_size(200.0, 60.0)
@@ -189,6 +197,12 @@ impl App {
                         let _ = settings_window.set_focus();
                     }
                 }
+                "history" => {
+                    if let Some(history_window) = app.get_webview_window("history") {
+                        let _ = history_window.show();
+                        let _ = history_window.set_focus();
+                    }
+                }
                 "quit" => {
                     app.exit(0);
                 }
@@ -228,6 +242,16 @@ impl App {
         )
         .map_err(|e| AppError::Config(format!("Failed to create menu item: {}", e).into()))?;
 
+        let history_item = MenuItem::with_id(
+            app,
+            "history",
+            "History",
+            start_enabled,
+            None::<&str>,
+        )
+        .map_err(|e| AppError::Config(format!("Failed to create menu item: {}", e).into()))?;
+
+
         let separator = PredefinedMenuItem::separator(app)
             .map_err(|e| AppError::Config(format!("Failed to create separator: {}", e).into()))?;
 
@@ -242,6 +266,7 @@ impl App {
             &[
                 &start_recording_item,
                 &stop_recording_item,
+                &history_item,
                 &separator,
                 &settings_item,
                 &quit_item,

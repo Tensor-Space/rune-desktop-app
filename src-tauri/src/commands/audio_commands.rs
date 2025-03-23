@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use tauri::{command, AppHandle, State};
+use tauri_plugin_store::StoreExt;
 
 use crate::{
     audio::{devices::AudioDevices, AudioDevice},
@@ -46,4 +47,39 @@ pub async fn set_default_device(
         .map_err(|e| format!("Failed to persist settings: {}", e))?;
 
     Ok(())
+}
+
+#[command]
+pub async fn get_transcription_history(
+    app_handle: AppHandle
+) -> Result<Vec<serde_json::Value>, String> {
+    println!("Getting transcription history directly from store...");
+    
+    // Access the store directly without initializing the transcriber
+    let store = match app_handle.store("transcription_history.json") {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Failed to access store: {}", e);
+            // If we can't access the store, initialize an empty one
+            app_handle.store("transcription_history.json")
+                .map_err(|e| format!("Failed to create store: {}", e))?
+        }
+    };
+    
+    let history: Vec<serde_json::Value> = match store.get("transcriptions") {
+        Some(value) => match value {
+            serde_json::Value::Array(arr) => arr.clone(),
+            _ => {
+                println!("Found malformed transcriptions data, returning empty array");
+                Vec::new() 
+            }
+        },
+        None => {
+            println!("No transcriptions found in store, returning empty array");
+            Vec::new()
+        }
+    };
+    
+    println!("Found {} transcriptions", history.len());
+    Ok(history)
 }
