@@ -1,11 +1,10 @@
 use core::{app::App, error::AppError};
 
-pub mod audio;
 pub mod commands;
+pub mod controllers;
 pub mod core;
-pub mod handlers;
 pub mod prompts;
-pub mod text;
+pub mod services;
 
 pub type Result<T> = std::result::Result<T, AppError>;
 

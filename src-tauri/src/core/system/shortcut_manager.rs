@@ -1,6 +1,6 @@
 use crate::{
+    controllers::audio_pipleine_controller::AudioPipelineController,
     core::{app::AppState, error::AppError},
-    handlers::recording_pipeline_handler::RecordingPipeline,
 };
 use std::{process::Command, str::FromStr, sync::Arc};
 use tauri::{AppHandle, Manager};
@@ -61,7 +61,7 @@ impl ShortcutManager {
         let escape_shortcut = Shortcut::new(None, Code::Escape);
 
         let previous_app = Arc::new(parking_lot::Mutex::new(None::<String>));
-        let recording_pipeline = Arc::new(RecordingPipeline::new(
+        let recording_pipeline = Arc::new(AudioPipelineController::new(
             Arc::clone(&self.app_state),
             handle.clone(),
         ));

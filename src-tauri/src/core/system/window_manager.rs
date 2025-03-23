@@ -3,9 +3,9 @@ use tauri::WebviewWindow;
 
 use crate::core::error::SystemError;
 
-pub struct WindowStyler {}
+pub struct WindowManager {}
 
-impl WindowStyler {
+impl WindowManager {
     pub fn remove_titlebar_and_traffic_lights(window: WebviewWindow) -> Result<(), SystemError> {
         #[cfg(target_os = "macos")]
         {

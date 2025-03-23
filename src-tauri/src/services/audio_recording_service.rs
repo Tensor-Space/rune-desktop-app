@@ -8,6 +8,7 @@ use parking_lot::Mutex;
 use rubato::{FftFixedIn, Resampler};
 use std::{
     io::Write,
+    path::PathBuf,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -77,25 +78,26 @@ struct RecorderState {
     current_sample_rate: Arc<Mutex<u32>>,
 }
 
-pub struct AudioRecorder {
+pub struct AudioRecordingService {
     state: Arc<Mutex<RecorderState>>,
     last_level_update: Arc<Mutex<Instant>>,
     audio_sender: Arc<Mutex<Option<Sender<Vec<f32>>>>>,
     recording_active: Arc<std::sync::atomic::AtomicBool>,
 }
 
-impl Default for AudioRecorder {
+impl Default for AudioRecordingService {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl AudioRecorder {
+impl AudioRecordingService {
     pub fn new() -> Self {
-        flush_println("Initializing AudioRecorder");
+        flush_println("Initializing AudioRecordingService");
         Self {
             state: Arc::new(Mutex::new(RecorderState {
                 audio_data: Arc::new(Mutex::new(AudioData::new())),
+                current_sample_rate: Arc::new(Mutex::new(0)),
                 ..Default::default()
             })),
             last_level_update: Arc::new(Mutex::new(Instant::now())),
@@ -384,7 +386,7 @@ impl AudioRecorder {
         Ok(())
     }
 
-    pub async fn stop_recording(&self, output_path: std::path::PathBuf) -> Result<(), AudioError> {
+    pub async fn stop_recording(&self, output_path: PathBuf) -> Result<(), AudioError> {
         flush_println("=== Stopping Recording ===");
 
         self.recording_active
@@ -539,8 +541,7 @@ impl AudioRecorder {
 
         Ok(())
     }
-    
-} 
+}
 
-unsafe impl Send for AudioRecorder {}
-unsafe impl Sync for AudioRecorder {}
+unsafe impl Send for AudioRecordingService {}
+unsafe impl Sync for AudioRecordingService {}

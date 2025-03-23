@@ -1,9 +1,9 @@
 use crate::prompts::text_transformer_prompt::TextTransformerPrompt;
 use rune_llm::LLMClient;
 
-pub struct TextTransformer;
+pub struct TextTransformationService;
 
-impl TextTransformer {
+impl TextTransformationService {
     pub async fn transform(
         llm_client: &parking_lot::MutexGuard<'_, LLMClient>,
         app_name: &str,
