@@ -36,6 +36,7 @@ impl App {
                 commands::audio_commands::set_default_device,
                 commands::audio_commands::get_default_device,
                 commands::audio_commands::get_transcription_history,
+                commands::audio_commands::cancel_recording,
                 // System commands
                 commands::system_commands::check_accessibility_permissions,
                 commands::system_commands::request_accessibility_permissions,

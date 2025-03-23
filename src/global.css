@@ -106,28 +106,11 @@
     --radius-xl: calc(var(--radius) + 4px);
 }
 
-@keyframes borderAnimation {
-    0%,
-    100% {
-        border-color: rgb(239 68 68);
-    }
-    25% {
-        border-color: rgb(59 130 246);
-    }
-    50% {
-        border-color: rgb(34 197 94);
-    }
-    75% {
-        border-color: rgb(234 179 8);
-    }
+body,
+html {
+    background: transparent;
 }
 
-.animate-border {
-    animation: borderAnimation 1s ease infinite;
-}
-
-.drag-region {
-    -webkit-app-region: drag;
-    user-select: none;
-    cursor: move;
+#root {
+    background: transparent !important;
 }

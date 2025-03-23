@@ -15,7 +15,7 @@ impl TextProcessingService {
         app_name: &str,
         text: &str,
     ) -> Result<String, anyhow::Error> {
-        let llm_client = state.llm_client.lock();
+        let llm_client = state.llm.lock();
 
         // Detect if we need an action (complex generation) or simple transformation
         let action_required = ActionIntentDetectorService::detect_intent(&llm_client, text).await?;

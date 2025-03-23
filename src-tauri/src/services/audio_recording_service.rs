@@ -216,6 +216,9 @@ impl AudioRecordingService {
         }
 
         self.set_app_handle(app_handle.clone());
+        *self.last_level_update.lock() = Instant::now()
+            .checked_sub(LEVEL_UPDATE_INTERVAL * 2)
+            .unwrap_or_else(Instant::now);
 
         let state = self.state.lock();
         {
@@ -266,7 +269,7 @@ impl AudioRecordingService {
         ));
 
         let chunk_size = DEFAULT_CHUNK_SIZE * num_channels;
-        let (tx, rx) = bounded::<Vec<f32>>(1024);
+        let (tx, rx) = bounded::<Vec<f32>>(32);
         *self.audio_sender.lock() = Some(tx.clone());
 
         let state = self.state.lock();
@@ -287,6 +290,7 @@ impl AudioRecordingService {
                     Ok(pcm) => {
                         let mut audio_data = audio_data.lock();
                         if !audio_data.recording {
+                            flush_println("Recording stopped");
                             continue;
                         }
 
@@ -324,7 +328,9 @@ impl AudioRecordingService {
                         if let Some(handle) = audio_data.app_handle.as_ref() {
                             let now = Instant::now();
                             let mut last_update = last_level_update_arc.lock();
-                            if now.duration_since(*last_update) >= LEVEL_UPDATE_INTERVAL {
+                            if now.duration_since(*last_update) >= LEVEL_UPDATE_INTERVAL
+                                || audio_data.buffers.len() < 5
+                            {
                                 if let Err(e) = handle.emit("audio-levels", levels) {
                                     flush_println(&format!("Failed to emit audio levels: {}", e));
                                 }
@@ -539,6 +545,45 @@ impl AudioRecordingService {
             output_path.display()
         ));
 
+        Ok(())
+    }
+
+    pub async fn stop_recording_without_save(&self) -> Result<(), AudioError> {
+        let log_tag = "=== Stopping Recording (No Save) ===";
+        println!("{}", log_tag);
+
+        self.recording_active
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+
+        {
+            let state = self.state.lock();
+            let mut audio_data = state.audio_data.lock();
+            if !audio_data.recording {
+                println!("Not currently recording, nothing to clean up");
+                return Ok(()); // Not an error if we weren't recording
+            }
+            audio_data.recording = false;
+            println!("Marked recording as stopped");
+        }
+
+        {
+            let mut state = self.state.lock();
+            if let Some(stream) = state.stream.take() {
+                println!("Stopping audio stream");
+                if let Err(e) = stream.pause() {
+                    println!("Warning: Failed to pause stream: {}", e);
+                }
+            }
+        }
+
+        {
+            if let Some(sender) = self.audio_sender.lock().take() {
+                println!("Cleaning up audio channel");
+                drop(sender);
+            }
+        }
+
+        println!("Recording stopped without saving files");
         Ok(())
     }
 }

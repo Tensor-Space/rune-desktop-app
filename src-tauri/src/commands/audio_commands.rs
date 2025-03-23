@@ -84,3 +84,16 @@ pub async fn get_transcription_history(
     println!("Found {} transcriptions", history.len());
     Ok(history)
 }
+
+#[command]
+pub async fn cancel_recording(state: State<'_, Arc<AppState>>) -> Result<(), String> {
+    let lock = state.audio_pipeline.lock();
+    let pipeline = match &*lock {
+        Some(pipeline) => pipeline,
+        None => return Err("Audio pipeline not initialized".to_string()),
+    };
+
+    state.runtime.block_on(pipeline.cancel());
+
+    Ok(())
+}

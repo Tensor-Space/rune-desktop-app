@@ -1,13 +1,9 @@
-use crate::{
-    controllers::audio_pipleine_controller::AudioPipelineController,
-    core::{app::AppState, error::AppError},
-};
-use std::{process::Command, str::FromStr, sync::Arc};
-use tauri::{AppHandle, Manager};
+use crate::core::{app::AppState, error::AppError};
+use std::{str::FromStr, sync::Arc};
+use tauri::AppHandle;
 use tauri_plugin_global_shortcut::{
     Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutEvent, ShortcutState,
 };
-use tokio::runtime::Runtime;
 
 pub struct ShortcutManager {
     app_state: Arc<AppState>,
@@ -18,19 +14,10 @@ impl ShortcutManager {
         Self { app_state }
     }
 
-    fn activate_app(app_name: &str) {
-        Command::new("osascript")
-            .arg("-e")
-            .arg(format!(r#"tell application "{}" to activate"#, app_name))
-            .output()
-            .ok();
-    }
-
     pub fn register_shortcuts(&self, app: &tauri::App) -> Result<(), AppError> {
         let handle = app.handle();
         let settings = self.app_state.settings.read().clone();
 
-        // Create the record shortcut from settings
         println!("{:?}", settings);
         let record_shortcut = {
             let modifier = settings
@@ -58,34 +45,31 @@ impl ShortcutManager {
             Shortcut::new(Some(parsed_modifier), parsed_key)
         };
 
-        let escape_shortcut = Shortcut::new(None, Code::Escape);
+        let recording_pipeline = match &*self.app_state.audio_pipeline.lock() {
+            Some(pipeline) => Arc::clone(pipeline),
+            None => {
+                return Err(AppError::Generic(
+                    "Audio pipeline not initialized".to_string(),
+                ))
+            }
+        };
 
-        let previous_app = Arc::new(parking_lot::Mutex::new(None::<String>));
-        let recording_pipeline = Arc::new(AudioPipelineController::new(
-            Arc::clone(&self.app_state),
-            handle.clone(),
-        ));
-
-        let rt = Runtime::new().unwrap();
+        let app_state = Arc::clone(&self.app_state);
 
         handle.plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(
-                    move |app_handle: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent| {
+                    move |_app_handle: &AppHandle, shortcut: &Shortcut, event: ShortcutEvent| {
                         if shortcut == &record_shortcut {
                             match event.state {
                                 ShortcutState::Pressed => {
-                                    let _ = rt.block_on(recording_pipeline.start()).unwrap();
+                                    let _ = app_state
+                                        .runtime
+                                        .block_on(recording_pipeline.start())
+                                        .unwrap();
                                 }
                                 ShortcutState::Released => {
-                                    let _ = rt.block_on(recording_pipeline.stop());
-                                }
-                            }
-                        } else if shortcut == &escape_shortcut {
-                            if let Some(window) = app_handle.get_webview_window("main") {
-                                window.hide().unwrap();
-                                if let Some(app_name) = previous_app.lock().take() {
-                                    Self::activate_app(&app_name);
+                                    let _ = app_state.runtime.block_on(recording_pipeline.stop());
                                 }
                             }
                         }
@@ -99,12 +83,6 @@ impl ShortcutManager {
             .map_err(|e| {
                 log::error!("Failed to register record shortcut: {}", e);
                 AppError::Generic("Failed to register record shortcut".to_string())
-            })?;
-        app.global_shortcut()
-            .register(escape_shortcut)
-            .map_err(|e| {
-                log::error!("Failed to register escape shortcut: {}", e);
-                AppError::Generic("Failed to register escape shortcut".to_string())
             })?;
 
         Ok(())

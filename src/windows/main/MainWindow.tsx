@@ -15,7 +15,7 @@ function MainWindow() {
 
   const stopRecording = useCallback(async () => {
     try {
-      await invoke("stop_recording");
+      await invoke("cancel_recording");
       await getCurrentWindow().hide();
     } catch (error) {
       console.error("Error stopping recording:", error);

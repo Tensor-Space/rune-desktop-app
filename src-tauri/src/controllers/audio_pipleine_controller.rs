@@ -1,4 +1,5 @@
-use std::{path::PathBuf, process::Command, sync::Arc, thread};
+use std::{path::PathBuf, process::Command, sync::Arc};
+use tokio::sync::oneshot;
 
 use crate::{
     core::{app::AppState, utils::audio::get_recordings_path},
@@ -10,6 +11,7 @@ use crate::{
     },
 };
 use parking_lot::{Mutex, MutexGuard};
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{path::BaseDirectory, AppHandle, Emitter, Manager};
 
 #[derive(Debug, Clone)]
@@ -20,6 +22,7 @@ pub enum ProcessingStatus {
     ThinkingAction,
     GeneratingText,
     Completed,
+    Cancelled,
     Error(String),
 }
 
@@ -32,6 +35,7 @@ impl ProcessingStatus {
             ProcessingStatus::ThinkingAction => "thinking_action",
             ProcessingStatus::GeneratingText => "generating_text",
             ProcessingStatus::Completed => "completed",
+            ProcessingStatus::Cancelled => "cancelled",
             ProcessingStatus::Error(_) => "error",
         }
     }
@@ -43,6 +47,8 @@ pub struct AudioPipelineController {
     app_handle: AppHandle,
     recording_service: Arc<Mutex<AudioRecordingService>>,
     transcription_service: Arc<Mutex<TextTranscriptionService>>,
+    cancellation_token: Arc<AtomicBool>,
+    is_processing: Arc<AtomicBool>,
 }
 
 impl AudioPipelineController {
@@ -83,6 +89,8 @@ impl AudioPipelineController {
                                     app_handle,
                                     recording_service,
                                     transcription_service: Arc::new(Mutex::new(t)),
+                                    cancellation_token: Arc::new(AtomicBool::new(false)),
+                                    is_processing: Arc::new(AtomicBool::new(false)),
                                 };
                             }
                         }
@@ -109,6 +117,8 @@ impl AudioPipelineController {
             app_handle,
             recording_service,
             transcription_service,
+            cancellation_token: Arc::new(AtomicBool::new(false)),
+            is_processing: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -132,7 +142,60 @@ impl AudioPipelineController {
             .ok();
     }
 
+    pub fn is_processing(&self) -> bool {
+        self.is_processing.load(Ordering::SeqCst)
+    }
+
+    pub async fn cancel(&self) {
+        log::info!("Cancelling audio processing pipeline");
+        self.cancellation_token.store(true, Ordering::SeqCst);
+
+        if self.is_processing() {
+            log::info!("Pipeline is in processing state, stopping immediately");
+
+            {
+                let recording_service = self.recording_service.lock();
+                if let Err(e) = recording_service.stop_recording_without_save().await {
+                    log::error!("Error stopping recording during cancellation: {}", e);
+                }
+            }
+
+            if let Some(window) = self.app_handle.get_webview_window("main") {
+                if let Ok(true) = window.is_visible() {
+                    let _ = window.emit(
+                        "audio-processing-status",
+                        ProcessingStatus::Cancelled.as_str(),
+                    );
+                    let _ = window.hide();
+                }
+            }
+
+            self.is_processing.store(false, Ordering::SeqCst);
+
+            if let Some(app) = self.previous_app.lock().take() {
+                Self::activate_app(&app);
+            }
+        }
+    }
+
+    pub fn cancel_sync(&self) {
+        self.cancellation_token.store(true, Ordering::SeqCst);
+
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            runtime.block_on(self.cancel());
+        } else {
+            self.is_processing.store(false, Ordering::SeqCst);
+
+            if let Some(app) = self.previous_app.lock().take() {
+                Self::activate_app(&app);
+            }
+        }
+    }
+
     pub async fn start(&self) -> Result<(), Box<dyn std::error::Error>> {
+        self.cancellation_token.store(false, Ordering::SeqCst);
+        self.is_processing.store(true, Ordering::SeqCst);
+
         if let Some(app_name) = Self::get_frontmost_app_name() {
             *self.previous_app.lock() = Some(app_name);
         }
@@ -144,11 +207,18 @@ impl AudioPipelineController {
         let settings = self.state.settings.read().clone();
         let device_id = settings.audio.default_device.clone();
 
-        let recording_service = self.recording_service.lock();
-        recording_service.set_device_id(device_id);
-        recording_service.set_app_handle(self.app_handle.clone());
+        {
+            let recording_service = self.recording_service.lock();
+            recording_service.set_device_id(device_id);
+            recording_service.set_app_handle(self.app_handle.clone());
+        }
 
-        match recording_service.start_recording(&self.app_handle).await {
+        let result = {
+            let recording_service = self.recording_service.lock();
+            recording_service.start_recording(&self.app_handle).await
+        };
+
+        match result {
             Ok(_) => window.emit(
                 "audio-processing-status",
                 ProcessingStatus::Recording.as_str(),
@@ -170,12 +240,14 @@ impl AudioPipelineController {
         let window = self.app_handle.get_webview_window("main").unwrap();
         let temp_path = get_recordings_path(&self.app_handle).join("rune_recording.wav");
 
-        if let Err(e) = self
-            .recording_service
-            .lock()
-            .stop_recording(temp_path.clone())
-            .await
-        {
+        self.cancellation_token.store(false, Ordering::SeqCst);
+
+        let recording_result = {
+            let recording_service = self.recording_service.lock();
+            recording_service.stop_recording(temp_path.clone()).await
+        };
+
+        if let Err(e) = recording_result {
             log::error!("Failed to stop recording: {}", e);
             window
                 .emit(
@@ -183,187 +255,243 @@ impl AudioPipelineController {
                     ProcessingStatus::Error(format!("Failed to stop recording: {}", e)).as_str(),
                 )
                 .unwrap_or_else(|e| log::error!("Failed to emit error status: {}", e));
+
+            self.is_processing.store(false, Ordering::SeqCst);
             return;
         }
 
-        // Clone what we need for the background thread
-        let app_handle = self.app_handle.clone();
+        if let Err(e) = window.emit(
+            "audio-processing-status",
+            ProcessingStatus::Transcribing.as_str(),
+        ) {
+            log::error!("Failed to emit status: {}", e);
+        }
+
+        if self.cancellation_token.load(Ordering::SeqCst) {
+            log::info!("Processing cancelled during transcription setup");
+            if let Err(e) = window.emit(
+                "audio-processing-status",
+                ProcessingStatus::Cancelled.as_str(),
+            ) {
+                log::error!("Failed to emit status: {}", e);
+            }
+
+            self.is_processing.store(false, Ordering::SeqCst);
+
+            if let Some(app) = self.previous_app.lock().take() {
+                Self::activate_app(&app);
+            }
+            return;
+        }
+
+        if !temp_path.exists() {
+            if let Err(e) = window.emit(
+                "audio-processing-status",
+                ProcessingStatus::Error("No recording found to transcribe".to_string()).as_str(),
+            ) {
+                log::error!("Failed to emit error status: {}", e);
+            }
+            self.is_processing.store(false, Ordering::SeqCst);
+            return;
+        }
+
+        let app_name = self.previous_app.lock().clone().unwrap_or_default();
+
+        let (tx, rx) = oneshot::channel();
+
+        let temp_path_clone = temp_path.clone();
         let transcription_service = self.transcription_service.clone();
-        let state = self.state.clone();
-        let previous_app_copy = self.previous_app.lock().clone();
-        let mut previous_app_mutex = self.previous_app.lock().clone();
+        let cancellation_token = self.cancellation_token.clone();
 
-        // Use a regular thread for CPU-intensive transcription
-        thread::spawn(move || {
-            // Update UI status to transcribing
-            app_handle
-                .emit(
-                    "audio-processing-status",
-                    ProcessingStatus::Transcribing.as_str(),
-                )
-                .unwrap_or_else(|e| log::error!("Failed to emit status: {}", e));
+        std::thread::spawn(move || {
+            let transcription_result = {
+                let mut transcription_service_guard = transcription_service.lock();
+                transcription_service_guard.transcribe(temp_path_clone)
+            };
 
-            if !temp_path.exists() {
-                app_handle
-                    .emit(
-                        "audio-processing-status",
-                        ProcessingStatus::Error("No recording found to transcribe".to_string())
-                            .as_str(),
-                    )
-                    .unwrap_or_else(|e| log::error!("Failed to emit error status: {}", e));
+            if cancellation_token.load(Ordering::SeqCst) {
+                let _ = tx.send(Err(anyhow::anyhow!("Processing cancelled")));
                 return;
             }
 
-            // Get the app name that was captured
-            let app_name = previous_app_copy.unwrap_or_default();
+            let _ = tx.send(transcription_result.map_err(|e| anyhow::anyhow!("{}", e)));
+        });
 
-            // Perform transcription (CPU-intensive)
-            let transcription_result = {
-                let mut transcription_service_guard = transcription_service.lock();
-                transcription_service_guard.transcribe(temp_path.clone())
-            };
+        let transcription_result: Result<Vec<std::string::String>, anyhow::Error> = match rx.await {
+            Ok(result) => result,
+            Err(e) => {
+                log::error!("Failed to receive transcription result: {}", e);
+                if let Err(e) = window.emit(
+                    "audio-processing-status",
+                    ProcessingStatus::Error(format!("Transcription failed: {}", e)).as_str(),
+                ) {
+                    log::error!("Failed to emit error status: {}", e);
+                }
+                self.is_processing.store(false, Ordering::SeqCst);
+                return;
+            }
+        };
 
-            match transcription_result {
-                Ok(transcription) => {
-                    if let Some(text) = transcription.first() {
-                        // Update UI status to thinking
-                        app_handle
-                            .emit(
-                                "audio-processing-status",
-                                ProcessingStatus::ThinkingAction.as_str(),
-                            )
-                            .unwrap_or_else(|e| log::error!("Failed to emit status: {}", e));
+        if self.cancellation_token.load(Ordering::SeqCst) {
+            log::info!("Processing cancelled after transcription");
+            if let Err(e) = window.emit(
+                "audio-processing-status",
+                ProcessingStatus::Cancelled.as_str(),
+            ) {
+                log::error!("Failed to emit status: {}", e);
+            }
 
-                        // Now run the text processing (which is also async) in a task runner
-                        let text_clone = text.clone();
-                        let app_name_clone = app_name.clone();
+            self.is_processing.store(false, Ordering::SeqCst);
 
-                        // Create a one-shot channel for communicating results
-                        let (tx, rx) = std::sync::mpsc::channel();
+            if let Some(app) = self.previous_app.lock().take() {
+                Self::activate_app(&app);
+            }
+            return;
+        }
 
-                        // Spawn a tokio runtime for the async processing
-                        let rt = tokio::runtime::Builder::new_current_thread()
-                            .enable_all()
-                            .build()
-                            .unwrap();
+        match transcription_result {
+            Ok(transcription) => {
+                if let Some(text) = transcription.first() {
+                    // Update UI status to thinking
+                    if let Err(e) = window.emit(
+                        "audio-processing-status",
+                        ProcessingStatus::ThinkingAction.as_str(),
+                    ) {
+                        log::error!("Failed to emit status: {}", e);
+                    }
 
-                        // Run the async processing
-                        rt.block_on(async {
-                            let result = TextProcessingService::process_text(
-                                &state,
-                                &app_name_clone,
-                                &text_clone,
-                            )
-                            .await;
-                            tx.send(result).unwrap();
-                        });
+                    let text_clone = text.clone();
+                    let app_name_clone = app_name.clone();
+                    let state = self.state.clone();
+                    let app_handle = self.app_handle.clone();
+                    let cancellation_token = self.cancellation_token.clone();
+                    let is_processing = self.is_processing.clone();
+                    let mut previous_app_opt = self.previous_app.lock().clone();
 
-                        // Get the processing result
-                        match rx.recv().unwrap() {
-                            Ok(processed_text) => {
-                                // Activate the previous app
-                                if let Some(app) = previous_app_mutex.take() {
-                                    AudioPipelineController::activate_app(&app);
-                                }
+                    let process_result = match state.runtime.block_on(async {
+                        if cancellation_token.load(Ordering::SeqCst) {
+                            return Err(anyhow::anyhow!("Processing cancelled"));
+                        }
 
-                                // Inject the processed text
-                                if let Err(e) = TextProcessingService::inject_text(&processed_text)
-                                {
-                                    log::error!("Failed to inject text: {}", e);
-                                }
-
-                                // Save the processed text to history using TextTranscriptHistoryService
-                                if let Err(e) = TextTranscriptHistoryService::save_processed_text(
-                                    &app_handle,
-                                    &processed_text,
+                        TextProcessingService::process_text(&state, &app_name_clone, &text_clone)
+                            .await
+                    }) {
+                        Ok(processed_text) => {
+                            if cancellation_token.load(Ordering::SeqCst) {
+                                log::info!("Processing cancelled after text processing");
+                                if let Err(e) = window.emit(
+                                    "audio-processing-status",
+                                    ProcessingStatus::Cancelled.as_str(),
                                 ) {
-                                    log::error!("Failed to save processed text to history: {}", e);
+                                    log::error!("Failed to emit status: {}", e);
                                 }
 
-                                // Update UI status to completed and hide window
-                                app_handle
-                                    .emit(
-                                        "audio-processing-status",
-                                        ProcessingStatus::Completed.as_str(),
-                                    )
-                                    .unwrap_or_else(|e| {
-                                        log::error!("Failed to emit status: {}", e)
-                                    });
+                                is_processing.store(false, Ordering::SeqCst);
 
-                                if let Some(window) = app_handle.get_webview_window("main") {
-                                    window.hide().unwrap_or_else(|e| {
-                                        log::error!("Failed to hide window: {}", e)
-                                    });
+                                if let Some(app) = previous_app_opt.take() {
+                                    Self::activate_app(&app);
                                 }
+                                return;
+                            }
 
-                                // Update history window if it's open
-                                if let Some(_history_window) =
-                                    app_handle.get_webview_window("history")
-                                {
-                                    // Instead of checking if the window is visible, just emit a global event
-                                    // This will be picked up by any open history windows
-                                    // We already emit the transcription-added event in save_transcription,
-                                    // but emit a refresh event as a fallback
-                                    if let Err(e) = app_handle.emit("refresh-history", ()) {
-                                        log::error!("Failed to emit history refresh event: {}", e);
-                                    } else {
-                                        log::info!("Emitted history refresh event");
-                                    }
+                            if let Some(app) = previous_app_opt.take() {
+                                Self::activate_app(&app);
+                            }
+
+                            if let Err(e) = TextProcessingService::inject_text(&processed_text) {
+                                log::error!("Failed to inject text: {}", e);
+                            }
+
+                            if let Err(e) = TextTranscriptHistoryService::save_processed_text(
+                                &app_handle,
+                                &processed_text,
+                            ) {
+                                log::error!("Failed to save processed text to history: {}", e);
+                            }
+
+                            if let Err(e) = window.emit(
+                                "audio-processing-status",
+                                ProcessingStatus::Completed.as_str(),
+                            ) {
+                                log::error!("Failed to emit status: {}", e);
+                            }
+
+                            if let Some(window) = app_handle.get_webview_window("main") {
+                                if let Err(e) = window.hide() {
+                                    log::error!("Failed to hide window: {}", e);
                                 }
                             }
-                            Err(e) => {
-                                log::error!("Text processing error: {}", e);
 
-                                // Activate the previous app
-                                if let Some(app) = previous_app_mutex.take() {
-                                    AudioPipelineController::activate_app(&app);
+                            if let Some(_history_window) = app_handle.get_webview_window("history")
+                            {
+                                if let Err(e) = app_handle.emit("refresh-history", ()) {
+                                    log::error!("Failed to emit history refresh event: {}", e);
+                                } else {
+                                    log::info!("Emitted history refresh event");
                                 }
+                            }
 
-                                // Fall back to injecting the original text
-                                TextProcessingService::inject_text(text).unwrap_or_else(|e| {
-                                    log::error!("Failed to inject original text: {}", e)
-                                });
+                            Ok(())
+                        }
+                        Err(e) => Err(e),
+                    };
 
-                                // Update UI status to error
-                                app_handle
-                                    .emit(
-                                        "audio-processing-status",
-                                        ProcessingStatus::Error(format!(
-                                            "Processing failed: {}",
-                                            e
-                                        ))
-                                        .as_str(),
-                                    )
-                                    .unwrap_or_else(|e| {
-                                        log::error!("Failed to emit error status: {}", e)
-                                    });
+                    if let Err(e) = process_result {
+                        log::error!("Text processing error: {}", e);
+
+                        if self.cancellation_token.load(Ordering::SeqCst) {
+                            if let Err(e) = window.emit(
+                                "audio-processing-status",
+                                ProcessingStatus::Cancelled.as_str(),
+                            ) {
+                                log::error!("Failed to emit status: {}", e);
+                            }
+                        } else {
+                            if let Some(app) = self.previous_app.lock().take() {
+                                Self::activate_app(&app);
+                            }
+
+                            if let Err(e) = TextProcessingService::inject_text(text) {
+                                log::error!("Failed to inject original text: {}", e);
+                            }
+
+                            if let Err(e) = window.emit(
+                                "audio-processing-status",
+                                ProcessingStatus::Error(format!("Processing failed: {}", e))
+                                    .as_str(),
+                            ) {
+                                log::error!("Failed to emit error status: {}", e);
                             }
                         }
-                    } else {
-                        log::error!("No transcription text available");
-                        app_handle
-                            .emit(
-                                "audio-processing-status",
-                                ProcessingStatus::Error("No text transcribed".to_string()).as_str(),
-                            )
-                            .unwrap_or_else(|e| log::error!("Failed to emit error status: {}", e));
                     }
-                }
-                Err(e) => {
-                    log::error!("Transcription error: {}", e);
-                    app_handle
-                        .emit(
-                            "audio-processing-status",
-                            ProcessingStatus::Error(format!("Transcription failed: {}", e))
-                                .as_str(),
-                        )
-                        .unwrap_or_else(|e| log::error!("Failed to emit error status: {}", e));
+
+                    self.is_processing.store(false, Ordering::SeqCst);
+                } else {
+                    log::error!("No transcription text available");
+                    if let Err(e) = window.emit(
+                        "audio-processing-status",
+                        ProcessingStatus::Error("No text transcribed".to_string()).as_str(),
+                    ) {
+                        log::error!("Failed to emit error status: {}", e);
+                    }
+
+                    self.is_processing.store(false, Ordering::SeqCst);
                 }
             }
-        });
+            Err(e) => {
+                log::error!("Transcription error: {}", e);
+                if let Err(e) = window.emit(
+                    "audio-processing-status",
+                    ProcessingStatus::Error(format!("Transcription failed: {}", e)).as_str(),
+                ) {
+                    log::error!("Failed to emit error status: {}", e);
+                }
+
+                self.is_processing.store(false, Ordering::SeqCst);
+            }
+        }
     }
 
-    // Getter methods for the services
     pub fn get_recording_service(&self) -> MutexGuard<AudioRecordingService> {
         self.recording_service.lock()
     }
