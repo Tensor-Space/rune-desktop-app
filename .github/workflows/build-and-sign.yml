@@ -78,6 +78,13 @@ jobs:
           echo "CERT_ID=$CERT_ID" >> $GITHUB_ENV
           echo "Certificate imported."
 
+      - name: Extract app version
+        id: app_version
+        run: |
+          VERSION=$(grep -m 1 '"version"' src-tauri/tauri.conf.json | awk -F: '{ print $2 }' | sed 's/[",]//g' | tr -d '[:space:]')
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
       - name: build and publish
         uses: tauri-apps/tauri-action@v0
         env:
@@ -99,13 +106,6 @@ jobs:
           prerelease: false
           args: ${{ matrix.args }}
 
-      # New steps to extract app version and upload artifacts
-      - name: Extract app version
-        id: app_version
-        run: |
-          VERSION=$(grep -m 1 '"version"' src-tauri/tauri.conf.json | awk -F: '{ print $2 }' | sed 's/[",]//g' | tr -d '[:space:]')
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-
       - name: Find build artifact
         id: find_artifact
         run: |
@@ -119,3 +119,42 @@ jobs:
           name: rune-app-${{ env.VERSION }}-macos-${{ matrix.arch }}
           path: ${{ env.ARTIFACT_PATH }}
           retention-days: 7
+
+      - name: Upload updater files to S3
+        run: |
+          # Create version directory name
+          VERSION_DIR="app-v${{ env.VERSION }}"
+
+          # Find updater files and signatures
+          UPDATER_FILES=$(find target/*/release -name "*.bin" -o -name "*.sig" -o -name "*.json" | grep -v node_modules)
+
+          # Create the directory structure if files are found
+          if [ -n "$UPDATER_FILES" ]; then
+            echo "Found updater files to upload"
+
+            # Upload each file to S3
+            for FILE in $UPDATER_FILES; do
+              FILENAME=$(basename "$FILE")
+              # Add architecture to the filename for clarity
+              S3_FILENAME="${FILENAME%.*}-${{ matrix.arch }}.${FILENAME##*.}"
+              echo "Uploading $FILE to s3://rune-builds/$VERSION_DIR/$S3_FILENAME"
+              aws s3 cp "$FILE" "s3://rune-builds/$VERSION_DIR/$S3_FILENAME" --no-progress
+            done
+          else
+            echo "No updater files found to upload"
+          fi
+
+      - name: Upload DMG to S3
+        run: |
+          VERSION_DIR="app-v${{ env.VERSION }}"
+          DMG_FILE=$(find target/*/release/bundle/dmg -name "*.dmg" | head -n 1)
+
+          if [ -n "$DMG_FILE" ]; then
+            FILENAME=$(basename "$DMG_FILE")
+            # Add architecture to the filename
+            S3_FILENAME="${FILENAME%.*}-${{ matrix.arch }}.${FILENAME##*.}"
+            echo "Uploading $DMG_FILE to s3://rune-builds/$VERSION_DIR/$S3_FILENAME"
+            aws s3 cp "$DMG_FILE" "s3://rune-builds/$VERSION_DIR/$S3_FILENAME" --no-progress
+          else
+            echo "No DMG file found to upload"
+          fi
