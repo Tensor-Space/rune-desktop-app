@@ -22,7 +22,7 @@ pub fn setup_app(app: &TauriApp, state: Arc<AppState>) -> Result<(), AppError> {
 
     initialize_audio_pipeline(app, &state)?;
 
-    configure_main_window(app)?;
+    configure_windows(app)?;
 
     setup_shortcuts(app, &state)?;
 
@@ -63,7 +63,7 @@ fn setup_settings(app: &TauriApp, state: &Arc<AppState>) -> Result<(), AppError>
     Ok(())
 }
 
-fn configure_main_window(app: &TauriApp) -> Result<(), AppError> {
+fn configure_windows(app: &TauriApp) -> Result<(), AppError> {
     let monitor = app.primary_monitor().unwrap().unwrap();
     let scale_factor = monitor.scale_factor();
     let monitor_size = monitor.size();
@@ -77,6 +77,30 @@ fn configure_main_window(app: &TauriApp) -> Result<(), AppError> {
         WindowManager::remove_titlebar_and_traffic_lights(main_window)?;
     } else {
         error!("Window not found: main")
+    }
+
+    if let Some(settings_window) = app.get_webview_window("settings") {
+        let settings_window_clone = settings_window.clone();
+        settings_window.on_window_event(move |event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = settings_window_clone.hide();
+            }
+        });
+    } else {
+        error!("Window not found: settings");
+    }
+
+    if let Some(history_window) = app.get_webview_window("history") {
+        let history_window_clone = history_window.clone();
+        history_window.on_window_event(move |event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = history_window_clone.hide();
+            }
+        });
+    } else {
+        error!("Window not found: history");
     }
 
     Ok(())

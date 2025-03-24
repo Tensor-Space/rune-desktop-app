@@ -83,14 +83,22 @@ impl SystemTrayManager {
             }
             "settings" => {
                 if let Some(settings_window) = app.get_webview_window("settings") {
-                    let _ = settings_window.show();
-                    let _ = settings_window.set_focus();
+                    if let Err(e) = settings_window.show() {
+                        log::error!("Failed to show settings window: {}", e);
+                    }
+                    if let Err(e) = settings_window.set_focus() {
+                        log::error!("Failed to focus settings window: {}", e);
+                    }
                 }
             }
             "history" => {
                 if let Some(history_window) = app.get_webview_window("history") {
-                    let _ = history_window.show();
-                    let _ = history_window.set_focus();
+                    if let Err(e) = history_window.show() {
+                        log::error!("Failed to show history window: {}", e);
+                    }
+                    if let Err(e) = history_window.set_focus() {
+                        log::error!("Failed to focus history window: {}", e);
+                    }
                 }
             }
             "quit" => {
@@ -152,7 +160,7 @@ impl SystemTrayManager {
         let history_item = Self::create_menu_item(app, "history", "History", true)?;
         let separator = PredefinedMenuItem::separator(app)
             .map_err(|e| AppError::Config(format!("Failed to create separator: {}", e).into()))?;
-        let settings_item = Self::create_menu_item(app, "settings", "Rune Settings", true)?;
+        let settings_item = Self::create_menu_item(app, "settings", "Settings", true)?;
         let quit_item = Self::create_menu_item(app, "quit", "Quit App", true)?;
 
         Menu::with_items(

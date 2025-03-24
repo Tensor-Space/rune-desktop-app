@@ -1,34 +1,35 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Shield,
   Keyboard,
   Mic,
-  ArrowRight,
-  Check,
   CheckCircle2,
+  Settings as SettingsIcon,
 } from "lucide-react";
 import { Settings } from "./types";
-import { Button } from "@/components/ui/button";
 import { Permissions } from "./pages/Accessibility";
 import { Audio } from "./pages/Microphone";
 import { Shortcuts } from "./pages/Shortcuts";
+import { cn } from "@/lib/utils";
 
-const steps = [
+const sections = [
   { id: "permissions", title: "Permissions", icon: Shield },
   { id: "microphone", title: "Microphone", icon: Mic },
   { id: "shortcuts", title: "Shortcuts", icon: Keyboard },
 ];
 
-type StepId = (typeof steps)[number]["id"];
+type SectionId = (typeof sections)[number]["id"];
 
 export const SettingsWindow = () => {
-  const [currentStep, setCurrentStep] = useState<StepId>("permissions");
+  const [currentSection, setCurrentSection] =
+    useState<SectionId>("permissions");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [completedSteps, setCompletedSteps] = useState<StepId[]>([]);
+  const [completedSections, setCompletedSections] = useState<SectionId[]>([]);
   const [_settings, setSettings] = useState<Settings | null>(null);
-  const [isOnboardingComplete, setIsOnboardingComplete] = useState(false);
+  const [, setIsOnboardingComplete] = useState(false);
+  const pollingIntervalRef = useRef<number | null>(null);
 
   useEffect(() => {
     // Prevent scrolling on body and html
@@ -42,107 +43,98 @@ export const SettingsWindow = () => {
     };
   }, []);
 
-  useEffect(() => {
-    const initializeSettings = async () => {
-      try {
-        const settings = await invoke<Settings>("get_settings");
-        setSettings(settings);
-        const completed: StepId[] = [];
+  // Function to fetch settings and update state
+  const fetchSettings = async () => {
+    try {
+      const settings = await invoke<Settings>("get_settings");
+      setSettings(settings);
+      const completed: SectionId[] = [];
 
-        const accessibilityPermission = await invoke<boolean>(
-          "check_accessibility_permissions",
+      const accessibilityPermission = await invoke<boolean>(
+        "check_accessibility_permissions",
+      );
+      if (accessibilityPermission) {
+        completed.push("permissions");
+      }
+      if (settings.audio.default_device) {
+        completed.push("microphone");
+      }
+      if (settings.shortcuts.record_key) {
+        completed.push("shortcuts");
+      }
+
+      setCompletedSections(completed);
+
+      if (completed.length === sections.length) {
+        setIsOnboardingComplete(true);
+      } else if (isLoading) {
+        const firstUncompleted = sections.find(
+          (section) => !completed.includes(section.id),
         );
-        if (accessibilityPermission) {
-          completed.push("permissions");
+        if (firstUncompleted) {
+          setCurrentSection(firstUncompleted.id);
         }
-        if (settings.audio.default_device) {
-          completed.push("microphone");
-        }
-        if (settings.shortcuts.record_key) {
-          completed.push("shortcuts");
-        }
-
-        setCompletedSteps(completed);
-
-        if (completed.length === steps.length) {
-          setCurrentStep("shortcuts");
-          setIsOnboardingComplete(true);
-        } else {
-          const firstUncompleted = steps.find(
-            (step) => !completed.includes(step.id),
-          );
-          if (firstUncompleted) {
-            setCurrentStep(firstUncompleted.id);
-          }
-        }
-      } catch (error) {
-        setError("Failed to initialize settings");
-        console.error(error);
-      } finally {
+      }
+    } catch (error) {
+      setError("Failed to fetch settings");
+      console.error(error);
+    } finally {
+      if (isLoading) {
         setIsLoading(false);
       }
-    };
+    }
+  };
 
-    initializeSettings();
+  useEffect(() => {
+    // Initial fetch
+    fetchSettings();
+
+    // Set up polling every 2 seconds
+    const intervalId = window.setInterval(() => {
+      fetchSettings();
+    }, 2000);
+
+    pollingIntervalRef.current = intervalId;
+
+    // Cleanup interval on component unmount
+    return () => {
+      if (pollingIntervalRef.current !== null) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
   }, []);
 
-  const currentStepIndex = steps.findIndex((step) => step.id === currentStep);
-
-  const markStepComplete = (stepId: StepId) => {
-    if (!completedSteps.includes(stepId)) {
-      setCompletedSteps([...completedSteps, stepId]);
+  const markSectionComplete = (sectionId: SectionId) => {
+    if (!completedSections.includes(sectionId)) {
+      setCompletedSections([...completedSections, sectionId]);
     }
   };
 
-  const moveToNextStep = () => {
-    markStepComplete(currentStep);
-    if (currentStepIndex < steps.length - 1) {
-      setCurrentStep(steps[currentStepIndex + 1].id);
-    } else {
-      setIsOnboardingComplete(true);
-    }
+  const handleSectionClick = (sectionId: SectionId) => {
+    setCurrentSection(sectionId);
   };
 
-  const moveToPreviousStep = () => {
-    if (currentStepIndex > 0) {
-      setCurrentStep(steps[currentStepIndex - 1].id);
-    }
-  };
-
-  const handleStepClick = (stepId: StepId) => {
-    setCurrentStep(stepId);
-  };
-
-  const finishOnboarding = async () => {
-    try {
-      await invoke("set_onboarding_complete", { complete: true });
-      setIsOnboardingComplete(true);
-    } catch (error) {
-      console.error(error);
-    }
-  };
-
-  const renderStep = () => {
-    switch (currentStep) {
+  const renderSection = () => {
+    switch (currentSection) {
       case "permissions":
         return (
           <Permissions
-            onComplete={() => markStepComplete("permissions")}
-            isStepComplete={completedSteps.includes("permissions")}
+            onComplete={() => markSectionComplete("permissions")}
+            isStepComplete={completedSections.includes("permissions")}
           />
         );
       case "microphone":
         return (
           <Audio
-            onComplete={() => markStepComplete("microphone")}
-            isStepComplete={completedSteps.includes("microphone")}
+            onComplete={() => markSectionComplete("microphone")}
+            isStepComplete={completedSections.includes("microphone")}
           />
         );
       case "shortcuts":
         return (
           <Shortcuts
-            onComplete={() => markStepComplete("shortcuts")}
-            isStepComplete={completedSteps.includes("shortcuts")}
+            onComplete={() => markSectionComplete("shortcuts")}
+            isStepComplete={completedSections.includes("shortcuts")}
           />
         );
       default:
@@ -160,109 +152,65 @@ export const SettingsWindow = () => {
 
   return (
     <div
-      className="flex flex-col h-screen bg-background text-foreground overflow-hidden"
+      className="flex h-screen bg-background text-foreground overflow-hidden"
       data-tauri-drag-region
     >
-      {/* Main container with fixed height and proper overflow behavior */}
-      <div className="flex flex-col h-full p-6 container mx-auto">
-        {/* Header */}
-        <div className="mb-10 text-center" data-tauri-drag-region>
-          <h1 className="text-2xl font-medium">Rune Config & Settings</h1>
+      {/* Sidebar */}
+      <div className="w-60 h-full border-r border-neutral-800 bg-muted/30">
+        {/* App title */}
+        <div
+          className="p-4 h-14 flex items-center border-b border-neutral-800"
+          data-tauri-drag-region
+        >
+          <SettingsIcon className="h-5 w-5 mr-2" />
+          <h1 className="text-md font-medium">Settings</h1>
         </div>
 
-        {/* Stepper */}
-        <div className="flex justify-center mb-12">
-          <div className="flex items-center">
-            {steps.map((step, index) => (
-              <div key={step.id} className="flex items-center">
+        {/* Navigation */}
+        <nav className="p-2">
+          <ul className="space-y-1">
+            {sections.map((section) => (
+              <li key={section.id}>
                 <button
-                  onClick={() => handleStepClick(step.id)}
-                  className={`
-                  flex items-center justify-center w-10 h-10 rounded-full border-2
-                  transition-colors duration-200
-                  ${
-                    step.id === currentStep
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : completedSteps.includes(step.id)
-                        ? "border-neutral-800 bg-primary/10 text-primary hover:bg-primary/20"
-                        : "border-neutral-800/30 text-muted-foreground hover:border-muted-foreground/50"
-                  }
-                `}
+                  onClick={() => handleSectionClick(section.id)}
+                  className={cn(
+                    "w-full flex items-center px-3 py-2 rounded-md text-sm transition-colors",
+                    "hover:bg-primary/10",
+                    currentSection === section.id
+                      ? "bg-primary/10 text-primary font-medium"
+                      : "text-muted-foreground",
+                  )}
                 >
-                  {completedSteps.includes(step.id) ? (
-                    <Check className="h-5 w-5" />
-                  ) : (
-                    <step.icon className="h-5 w-5" />
+                  <section.icon className="h-4 w-4 mr-2" />
+                  <span>{section.title}</span>
+                  {completedSections.includes(section.id) && (
+                    <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />
                   )}
                 </button>
-
-                {/* Step name */}
-                <div className="absolute mt-16 text-xs w-20 -ml-5 text-center">
-                  {step.title}
-                </div>
-
-                {index < steps.length - 1 && (
-                  <div
-                    className={`w-32 h-[2px] ${
-                      completedSteps.includes(step.id)
-                        ? "bg-neutral-800"
-                        : "bg-neutral-800/30"
-                    }`}
-                  />
-                )}
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
+        </nav>
+      </div>
+
+      {/* Main content */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {/* Header */}
+        <div
+          className="h-14 border-b border-neutral-800 flex items-center px-6"
+          data-tauri-drag-region
+        >
+          <h2 className="text-lg font-medium">
+            {sections.find((s) => s.id === currentSection)?.title}
+          </h2>
         </div>
 
-        {/* Error Message */}
-        {error && (
-          <div className="text-destructive text-center mb-4">{error}</div>
-        )}
-
-        {/* Current Step Content */}
-        <div className="flex-1 overflow-auto mt-6 container">
-          {renderStep()}
-        </div>
-
-        {/* Navigation Buttons */}
-        <div className="flex justify-between pt-4 mt-auto">
-          <Button
-            variant="outline"
-            onClick={moveToPreviousStep}
-            disabled={currentStepIndex === 0}
-          >
-            Back
-          </Button>
-
-          {isOnboardingComplete ? (
-            <Button
-              variant="default"
-              onClick={() => {
-                alert("Setup complete!");
-              }}
-            >
-              <CheckCircle2 className="h-4 w-4" />
-              Done (close)
-            </Button>
-          ) : (
-            <Button
-              onClick={
-                currentStepIndex === steps.length - 1
-                  ? finishOnboarding
-                  : moveToNextStep
-              }
-              disabled={!completedSteps.includes(currentStep)}
-            >
-              {currentStepIndex === steps.length - 1 ? (
-                "Finish"
-              ) : (
-                <>
-                  Next <ArrowRight className="ml-2 h-4 w-4" />
-                </>
-              )}
-            </Button>
+        {/* Content area */}
+        <div className="flex-1 overflow-auto p-6">
+          {error && (
+            <div className="text-destructive text-center mb-4">{error}</div>
           )}
+          {renderSection()}
         </div>
       </div>
     </div>
