@@ -54,7 +54,6 @@ pub struct AudioPipelineController {
 impl AudioPipelineController {
     pub fn new(state: Arc<AppState>, app_handle: AppHandle) -> Self {
         let recording_service = AudioRecordingService::new();
-        recording_service.audio_check();
 
         let recording_service_mutex = Arc::new(Mutex::new(recording_service));
 
