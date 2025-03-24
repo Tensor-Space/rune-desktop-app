@@ -1,0 +1,15 @@
+{
+  "version": "0.1.6",
+  "notes": "See the assets to download this version and install.",
+  "pub_date": "2025-03-23T23:46:07.321Z",
+  "platforms": {
+    "darwin-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUZmlkY2p4TEY2bWVmekpZUFJWQ3ZZaTlZRUhhL1gvMnFuODN1b0k4aEw1NVFoYm1CaGV2dnE0L2NDeUxpTnJpeWhWVWEyQkVLOW1YMzk2VFo0WWNYZCtGb3RTT2xDREE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzQyNzczNTM0CWZpbGU6UnVuZS5hcHAudGFyLmd6CkZxcTcrZW9VK2g5Sm9aUmIraU9GbjI5SXYya2JWUVFsR1EzaytpVy9jaDV0blNkaVdld3JzajNoTFV4azNhLzIrUDlMVXJLQ0dPS252Vmw5dnZCQkRnPT0K",
+      "url": "https://rune-builds.s3.us-west-2.amazonaws.com/app-v0.1.5/Rune_x64.app.tar.gz"
+    },
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUZmlkY2p4TEY2bVQrdmRNRGkyZ25XTFRWOW15S1prMy9DZThYVXVrWllxNVlESnEzNTh1YjV0bWxWWEkwcnRLdE9udVZFSzZzMW1MWVg4K2FRbmJ3cjY4UmxwTTh2cWdrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzQyNzczNTU0CWZpbGU6UnVuZS5hcHAudGFyLmd6ClJSSDUydW02eldsYXlXdENyM2tuMFdwRnJSZUh5azlxL2ZqV0cxdldtYXpxSmVlK0NTS2tST01wRHBtZFhEZUNCSlNrcTN0elprK1Jjd3RCN1VOc0JRPT0K",
+      "url": "https://rune-builds.s3.us-west-2.amazonaws.com/app-v0.1.5/Rune_aarch64.app.tar.gz"
+    }
+  }
+}
