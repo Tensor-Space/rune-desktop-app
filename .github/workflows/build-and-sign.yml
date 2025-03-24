@@ -120,41 +120,57 @@ jobs:
           path: ${{ env.ARTIFACT_PATH }}
           retention-days: 7
 
-      - name: Upload updater files to S3
+      - name: Upload files to S3
         run: |
           # Create version directory name
           VERSION_DIR="app-v${{ env.VERSION }}"
 
-          # Find updater files and signatures
-          UPDATER_FILES=$(find target/*/release -name "*.bin" -o -name "*.sig" -o -name "*.json" | grep -v node_modules)
-
-          # Create the directory structure if files are found
-          if [ -n "$UPDATER_FILES" ]; then
-            echo "Found updater files to upload"
-
-            # Upload each file to S3
-            for FILE in $UPDATER_FILES; do
-              FILENAME=$(basename "$FILE")
-              # Add architecture to the filename for clarity
-              S3_FILENAME="${FILENAME%.*}-${{ matrix.arch }}.${FILENAME##*.}"
-              echo "Uploading $FILE to s3://rune-builds/$VERSION_DIR/$S3_FILENAME"
-              aws s3 cp "$FILE" "s3://rune-builds/$VERSION_DIR/$S3_FILENAME" --no-progress
-            done
-          else
-            echo "No updater files found to upload"
+          # 1. Upload latest.json
+          LATEST_JSON=$(find target/*/release -name "latest.json" | head -n 1)
+          if [ -n "$LATEST_JSON" ]; then
+            echo "Uploading $LATEST_JSON to s3://rune-builds/$VERSION_DIR/latest.json"
+            aws s3 cp "$LATEST_JSON" "s3://rune-builds/$VERSION_DIR/latest.json" --no-progress
           fi
 
-      - name: Upload DMG to S3
-        run: |
-          VERSION_DIR="app-v${{ env.VERSION }}"
+          # 2. Upload DMG file
           DMG_FILE=$(find target/*/release/bundle/dmg -name "*.dmg" | head -n 1)
-
           if [ -n "$DMG_FILE" ]; then
-            FILENAME=$(basename "$DMG_FILE")
-            # Add architecture to the filename
-            S3_FILENAME="${FILENAME%.*}-${{ matrix.arch }}.${FILENAME##*.}"
-            echo "Uploading $DMG_FILE to s3://rune-builds/$VERSION_DIR/$S3_FILENAME"
-            aws s3 cp "$DMG_FILE" "s3://rune-builds/$VERSION_DIR/$S3_FILENAME" --no-progress
-          else
-            echo "No DMG file found to upload"
+            ARCH_SUFFIX=""
+            if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+              ARCH_SUFFIX="aarch64"
+            elif [[ "${{ matrix.arch }}" == "x64" ]]; then
+              ARCH_SUFFIX="x64"
+            fi
+
+            if [ -n "$ARCH_SUFFIX" ]; then
+              DMG_BASENAME=$(basename "$DMG_FILE" .dmg)
+              DMG_FILENAME="Rune_${{ env.VERSION }}_${ARCH_SUFFIX}.dmg"
+              echo "Uploading $DMG_FILE to s3://rune-builds/$VERSION_DIR/$DMG_FILENAME"
+              aws s3 cp "$DMG_FILE" "s3://rune-builds/$VERSION_DIR/$DMG_FILENAME" --no-progress
+            fi
+          fi
+
+          # 3. Upload app.tar.gz and its signature
+          TAR_FILE=$(find target/*/release -name "*.app.tar.gz" | head -n 1)
+          if [ -n "$TAR_FILE" ]; then
+            ARCH_SUFFIX=""
+            if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+              ARCH_SUFFIX="aarch64"
+            elif [[ "${{ matrix.arch }}" == "x64" ]]; then
+              ARCH_SUFFIX="x64"
+            fi
+
+            if [ -n "$ARCH_SUFFIX" ]; then
+              TAR_FILENAME="Rune_${ARCH_SUFFIX}.app.tar.gz"
+              echo "Uploading $TAR_FILE to s3://rune-builds/$VERSION_DIR/$TAR_FILENAME"
+              aws s3 cp "$TAR_FILE" "s3://rune-builds/$VERSION_DIR/$TAR_FILENAME" --no-progress
+
+              # Upload the signature file if it exists
+              SIG_FILE="${TAR_FILE}.sig"
+              if [ -f "$SIG_FILE" ]; then
+                SIG_FILENAME="${TAR_FILENAME}.sig"
+                echo "Uploading $SIG_FILE to s3://rune-builds/$VERSION_DIR/$SIG_FILENAME"
+                aws s3 cp "$SIG_FILE" "s3://rune-builds/$VERSION_DIR/$SIG_FILENAME" --no-progress
+              fi
+            fi
           fi
