@@ -3,6 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { X, GripVertical } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import posthog from "posthog-js"; // Make sure you have posthog-js installed
 
 type ProcessingStatus =
   | "idle"
@@ -19,15 +20,37 @@ function MainWindow() {
   const [processingStatus, setProcessingStatus] =
     useState<ProcessingStatus>("idle");
   const [dotPosition, setDotPosition] = useState(0);
+  const [transcript, setTranscript] = useState<string>("");
+  const [sessionId, setSessionId] = useState<string>("");
+
+  // Generate a unique session ID when the component mounts
+  useEffect(() => {
+    setSessionId(
+      `session_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+    );
+  }, []);
 
   const stopRecording = useCallback(async () => {
     try {
+      // Track when recording is stopped by user
+      posthog.capture("recording_stopped", {
+        session_id: sessionId,
+        transcript: transcript,
+        processing_status: processingStatus,
+      });
+
       await invoke("cancel_recording");
       await getCurrentWindow().hide();
     } catch (error) {
       console.error("Error stopping recording:", error);
+
+      // Track errors
+      posthog.capture("recording_stop_error", {
+        session_id: sessionId,
+        error: String(error),
+      });
     }
-  }, []);
+  }, [processingStatus, sessionId, transcript]);
 
   // Animation for the processing states
   useEffect(() => {
@@ -49,6 +72,17 @@ function MainWindow() {
     };
   }, [processingStatus]);
 
+  // Track status changes with PostHog
+  useEffect(() => {
+    if (processingStatus !== "idle") {
+      posthog.capture(`status_changed_${processingStatus}`, {
+        session_id: sessionId,
+        timestamp: new Date().toISOString(),
+        transcript: transcript,
+      });
+    }
+  }, [processingStatus, sessionId, transcript]);
+
   useEffect(() => {
     const unlisten = listen("audio-levels", (event: any) => {
       const newLevels = event.payload as number[];
@@ -67,15 +101,52 @@ function MainWindow() {
     const unlistenProcessingStatus = listen(
       "audio-processing-status",
       (event: any) => {
-        setProcessingStatus(event.payload as ProcessingStatus);
+        const newStatus = event.payload as ProcessingStatus;
+        setProcessingStatus(newStatus);
+
+        // For completed status, we need to track the full session completion
+        if (newStatus === "completed") {
+          posthog.capture("recording_completed", {
+            session_id: sessionId,
+            transcript: transcript,
+            duration: new Date().getTime() - parseInt(sessionId.split("_")[1]),
+          });
+        }
+
+        // For error status, we track the error
+        if (newStatus === "error") {
+          posthog.capture("recording_error", {
+            session_id: sessionId,
+            transcript: transcript,
+          });
+        }
       },
     );
+
+    // Listen for transcript updates
+    const unlistenTranscript = listen("transcription-result", (event: any) => {
+      const newTranscript = event.payload as string;
+      setTranscript(newTranscript);
+
+      posthog.capture("transcript_updated", {
+        session_id: sessionId,
+        transcript: newTranscript,
+        processing_status: processingStatus,
+      });
+    });
+
+    // Track when recording starts
+    posthog.capture("recording_started", {
+      session_id: sessionId,
+      timestamp: new Date().toISOString(),
+    });
 
     return () => {
       unlisten.then((unlistenFn) => unlistenFn());
       unlistenProcessingStatus.then((unlistenFn) => unlistenFn());
+      unlistenTranscript.then((unlistenFn) => unlistenFn());
     };
-  }, [stopRecording]);
+  }, [sessionId, processingStatus, transcript]);
 
   const getStatusText = () => {
     switch (processingStatus) {
@@ -99,6 +170,9 @@ function MainWindow() {
         <button
           className="text-gray-400 hover:text-white p-1"
           data-tauri-drag-region
+          onClick={() =>
+            posthog.capture("menu_button_clicked", { session_id: sessionId })
+          }
         >
           <GripVertical size={18} />
         </button>

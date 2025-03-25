@@ -1,22 +1,21 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { Route, Routes } from "react-router";
-import { BrowserRouter } from "react-router";
 import "./global.css";
-import { SettingsWindow } from "./windows/settings/SettingsWindow";
-import { HistoryView } from "./windows/history/HistoryView";
-import MainWindow from "./windows/main/MainWindow";
-import { OnboardingWindow } from "./windows/onboarding/OnboardingWindow";
+import { PostHogProvider } from "posthog-js/react";
+import { App } from "./App";
+
+export const REACT_APP_PUBLIC_POSTHOG_KEY =
+  "phc_bmoyzLxfEIkcoUfDU3CDq9geHEEvdGblfyFSYmwuUVC";
+export const REACT_APP_PUBLIC_POSTHOG_HOST = "https://us.i.posthog.com";
+
+const options = {
+  api_host: REACT_APP_PUBLIC_POSTHOG_HOST,
+};
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<MainWindow />} />
-        <Route path="settings" element={<SettingsWindow />} />
-        <Route path="history" element={<HistoryView />} />
-        <Route path="onboarding" element={<OnboardingWindow />} />
-      </Routes>
-    </BrowserRouter>
+    <PostHogProvider apiKey={REACT_APP_PUBLIC_POSTHOG_KEY} options={options}>
+      <App />
+    </PostHogProvider>
   </React.StrictMode>,
 );
