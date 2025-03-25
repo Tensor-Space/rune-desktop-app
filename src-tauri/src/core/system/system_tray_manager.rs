@@ -2,6 +2,7 @@ use crate::core::{
     app::AppState,
     error::{AppError, SystemError},
     state_machine::AppCommand,
+    utils::updater::check_for_updates,
 };
 use std::sync::Arc;
 use tauri::{
@@ -10,6 +11,7 @@ use tauri::{
     tray::TrayIconBuilder,
     AppHandle, Manager,
 };
+use tauri_plugin_notification::NotificationExt;
 
 pub struct SystemTrayManager {
     app_handle: AppHandle,
@@ -101,6 +103,29 @@ impl SystemTrayManager {
                     }
                 }
             }
+            "check_updates" => {
+                log::info!("Check for updates requested from tray");
+
+                let app_handle = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    match check_for_updates(app_handle.clone()).await {
+                        Ok(_update_found) => {}
+                        Err(e) => {
+                            log::error!("Failed to check for updates: {}", e);
+
+                            app_handle
+                                .notification()
+                                .builder()
+                                .title("Rune")
+                                .body(&format!("Update check failed: {}", e))
+                                .show()
+                                .unwrap_or_else(|e| {
+                                    log::error!("Failed to show notification: {}", e)
+                                });
+                        }
+                    }
+                });
+            }
             "quit" => {
                 log::info!("Quit requested from tray");
                 app_state.cancel_current_operation();
@@ -160,6 +185,12 @@ impl SystemTrayManager {
         let history_item = Self::create_menu_item(app, "history", "History", true)?;
         let separator = PredefinedMenuItem::separator(app)
             .map_err(|e| AppError::Config(format!("Failed to create separator: {}", e).into()))?;
+
+        let version = app.package_info().version.to_string();
+        let version_item =
+            Self::create_menu_item(app, "version", &format!("Version: {}", version), false)?;
+        let check_updates_item =
+            Self::create_menu_item(app, "check_updates", "Check for Updates", true)?;
         let settings_item = Self::create_menu_item(app, "settings", "Settings", true)?;
         let quit_item = Self::create_menu_item(app, "quit", "Quit App", true)?;
 
@@ -172,7 +203,11 @@ impl SystemTrayManager {
                 &separator,
                 &history_item,
                 &settings_item,
+                &separator,
+                &check_updates_item,
                 &quit_item,
+                &separator,
+                &version_item,
             ],
         )
         .map_err(|e| AppError::Config(format!("Failed to create menu: {}", e).into()))
