@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Shield,
@@ -6,17 +6,20 @@ import {
   Mic,
   CheckCircle2,
   Settings as SettingsIcon,
+  Key,
 } from "lucide-react";
 import { Settings } from "./types";
 import { Permissions } from "./pages/Accessibility";
 import { Audio } from "./pages/Microphone";
 import { Shortcuts } from "./pages/Shortcuts";
+import { ApiKeys } from "./pages/ApiKeys";
 import { cn } from "@/lib/utils";
 
 const sections = [
   { id: "permissions", title: "Permissions", icon: Shield },
   { id: "microphone", title: "Microphone", icon: Mic },
   { id: "shortcuts", title: "Shortcuts", icon: Keyboard },
+  { id: "api_keys", title: "API Keys", icon: Key },
 ];
 
 type SectionId = (typeof sections)[number]["id"];
@@ -29,15 +32,12 @@ export const SettingsWindow = () => {
   const [completedSections, setCompletedSections] = useState<SectionId[]>([]);
   const [_settings, setSettings] = useState<Settings | null>(null);
   const [, setIsOnboardingComplete] = useState(false);
-  const pollingIntervalRef = useRef<number | null>(null);
 
   useEffect(() => {
-    // Prevent scrolling on body and html
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
 
     return () => {
-      // Cleanup
       document.body.style.overflow = "";
       document.documentElement.style.overflow = "";
     };
@@ -61,6 +61,9 @@ export const SettingsWindow = () => {
       }
       if (settings.shortcuts.record_key) {
         completed.push("shortcuts");
+      }
+      if (settings.api_keys.openai) {
+        completed.push("api_keys");
       }
 
       setCompletedSections(completed);
@@ -88,20 +91,6 @@ export const SettingsWindow = () => {
   useEffect(() => {
     // Initial fetch
     fetchSettings();
-
-    // Set up polling every 2 seconds
-    const intervalId = window.setInterval(() => {
-      fetchSettings();
-    }, 2000);
-
-    pollingIntervalRef.current = intervalId;
-
-    // Cleanup interval on component unmount
-    return () => {
-      if (pollingIntervalRef.current !== null) {
-        clearInterval(pollingIntervalRef.current);
-      }
-    };
   }, []);
 
   const markSectionComplete = (sectionId: SectionId) => {
@@ -135,6 +124,13 @@ export const SettingsWindow = () => {
           <Shortcuts
             onComplete={() => markSectionComplete("shortcuts")}
             isStepComplete={completedSections.includes("shortcuts")}
+          />
+        );
+      case "api_keys":
+        return (
+          <ApiKeys
+            onComplete={() => markSectionComplete("api_keys")}
+            isStepComplete={completedSections.includes("api_keys")}
           />
         );
       default:

@@ -17,14 +17,23 @@ impl TextProcessingService {
     ) -> Result<String, anyhow::Error> {
         let llm_client = state.llm.lock();
 
-        // Detect if we need an action (complex generation) or simple transformation
-        let action_required = ActionIntentDetectorService::detect_intent(&llm_client, text).await?;
+        let action_required = match &*llm_client {
+            Some(client) => ActionIntentDetectorService::detect_intent(client, text).await?,
+            None => return Err(anyhow::anyhow!("LLM client not initialized")),
+        };
 
-        // Process text based on intent detection
         let processed_text = if action_required {
-            TextGeneratorService::generate(&llm_client, app_name, text).await?
+            match &*llm_client {
+                Some(client) => TextGeneratorService::generate(client, app_name, text).await?,
+                None => return Err(anyhow::anyhow!("LLM client not initialized")),
+            }
         } else {
-            TextTransformationService::transform(&llm_client, app_name, text).await?
+            match &*llm_client {
+                Some(client) => {
+                    TextTransformationService::transform(client, app_name, text).await?
+                }
+                None => return Err(anyhow::anyhow!("LLM client not initialized")),
+            }
         };
 
         Ok(processed_text)

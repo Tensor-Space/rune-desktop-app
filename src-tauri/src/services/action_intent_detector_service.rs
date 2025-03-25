@@ -4,10 +4,7 @@ use rune_llm::LLMClient;
 pub struct ActionIntentDetectorService;
 
 impl ActionIntentDetectorService {
-    pub async fn detect_intent(
-        llm_client: &parking_lot::MutexGuard<'_, LLMClient>,
-        text: &str,
-    ) -> Result<bool, anyhow::Error> {
+    pub async fn detect_intent(llm_client: &LLMClient, text: &str) -> Result<bool, anyhow::Error> {
         let prompt = TextIntentDetectorPrompt::get_prompt(text);
         let schema = TextIntentDetectorPrompt::get_schema();
 
