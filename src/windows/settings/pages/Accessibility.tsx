@@ -8,24 +8,36 @@ interface PermissionsProps {
 }
 
 export const Permissions = ({ onComplete }: PermissionsProps) => {
-  const [, setHasPermission] = useState(false);
+  const [, setHasPermission] = useState(true);
+
+  const checkPermissions = async () => {
+    try {
+      const permitted = await invoke<boolean>(
+        "check_accessibility_permissions",
+      );
+      setHasPermission(permitted);
+      if (permitted) {
+        onComplete();
+      }
+      return permitted;
+    } catch (error) {
+      console.error(error);
+      return false;
+    }
+  };
 
   useEffect(() => {
-    const checkPermissions = async () => {
-      try {
-        const permitted = await invoke<boolean>(
-          "check_accessibility_permissions",
-        );
-        setHasPermission(permitted);
-        if (permitted) {
-          onComplete();
-        }
-      } catch (error) {
-        console.error(error);
-      }
-    };
-
     checkPermissions();
+
+    const intervalId = setInterval(() => {
+      checkPermissions().then((permitted) => {
+        if (permitted) {
+          clearInterval(intervalId);
+        }
+      });
+    }, 1000);
+
+    return () => clearInterval(intervalId);
   }, [onComplete]);
 
   return (

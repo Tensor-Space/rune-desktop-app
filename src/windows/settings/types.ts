@@ -3,6 +3,13 @@ export interface Settings {
   audio: AudioConfig;
   window: WindowConfig;
   api_keys: ApiKeyConfig;
+  user_profile: UserProfile;
+}
+
+export interface UserProfile {
+  name: string | null;
+  email: string | null;
+  about: string | null;
 }
 
 export interface ApiKeyConfig {

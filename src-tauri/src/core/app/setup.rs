@@ -28,6 +28,8 @@ pub fn setup_app(app: &TauriApp, state: Arc<AppState>) -> Result<(), AppError> {
 
     setup_event_listeners(app, state.clone())?;
 
+    check_onboarding_status(app, state.clone())?;
+
     let handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
         check_for_updates(handle).await.unwrap();
@@ -105,6 +107,18 @@ fn configure_windows(app: &TauriApp) -> Result<(), AppError> {
         error!("Window not found: history");
     }
 
+    if let Some(onboarding_window) = app.get_webview_window("onboarding") {
+        let onboarding_window_clone = onboarding_window.clone();
+        onboarding_window.on_window_event(move |event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                api.prevent_close();
+                let _ = onboarding_window_clone.hide();
+            }
+        });
+    } else {
+        error!("Window not found: onboarding");
+    }
+
     Ok(())
 }
 
@@ -155,6 +169,28 @@ fn setup_event_listeners(app: &TauriApp, state: Arc<AppState>) -> Result<(), App
             let _ = window.close();
         }
     });
+
+    Ok(())
+}
+
+fn check_onboarding_status(app: &TauriApp, state: Arc<AppState>) -> Result<(), AppError> {
+    let settings = state.settings.read();
+
+    if settings.onboarding_status.is_none() {
+        log::info!("Onboarding status is none, showing onboarding window");
+
+        if let Some(onboarding_window) = app.get_webview_window("onboarding") {
+            onboarding_window.show()?;
+            onboarding_window.set_focus()?;
+        } else {
+            log::warn!("Onboarding window not found");
+        }
+    } else {
+        log::info!(
+            "Onboarding already completed: {:?}",
+            settings.onboarding_status
+        );
+    }
 
     Ok(())
 }
