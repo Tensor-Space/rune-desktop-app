@@ -46,6 +46,7 @@ impl App {
                 commands::system_commands::set_window_visibility,
                 commands::system_commands::get_settings,
                 commands::system_commands::update_shortcuts,
+                commands::system_commands::update_api_key,
             ])
             .setup(move |app| {
                 #[cfg(desktop)]

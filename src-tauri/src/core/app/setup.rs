@@ -18,8 +18,6 @@ const SETTINGS_FILE: &str = "settings.json";
 pub fn setup_app(app: &TauriApp, state: Arc<AppState>) -> Result<(), AppError> {
     setup_settings(app, &state)?;
 
-    state.init_state_machine(app.app_handle().clone());
-
     initialize_audio_pipeline(app, &state)?;
 
     configure_windows(app)?;
@@ -59,6 +57,10 @@ fn setup_settings(app: &TauriApp, state: &Arc<AppState>) -> Result<(), AppError>
         let mut state_settings = state.settings.write();
         *state_settings = settings.clone();
     }
+
+    state.init_state_machine(app.app_handle().clone());
+
+    state.init_llm_client(settings.api_keys.openai);
 
     Ok(())
 }

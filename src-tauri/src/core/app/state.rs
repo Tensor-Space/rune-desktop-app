@@ -10,7 +10,7 @@ use tokio::runtime::Runtime;
 
 pub struct AppState {
     pub settings: Arc<RwLock<Settings>>,
-    pub llm: Arc<Mutex<LLMClient>>,
+    pub llm: Arc<Mutex<Option<LLMClient>>>,
     pub audio_pipeline: Arc<Mutex<Option<Arc<AudioPipelineController>>>>,
     pub runtime: Runtime,
     pub state_machine: Arc<Mutex<Option<Arc<StateMachine>>>>,
@@ -23,12 +23,7 @@ impl AppState {
 
         Self {
             settings: Arc::new(RwLock::new(settings)),
-            llm: Arc::new(Mutex::new(LLMClient::new(
-                LLMProvider::OpenAI,
-                "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".to_string(),
-                None,
-                None,
-            ))),
+            llm: Arc::new(Mutex::new(None)), // Initialize as None
             audio_pipeline: Arc::new(Mutex::new(None)),
             runtime,
             state_machine: Arc::new(Mutex::new(None)),
@@ -38,6 +33,15 @@ impl AppState {
     pub fn init_state_machine(&self, app_handle: AppHandle) {
         let machine = StateMachine::new(app_handle);
         *self.state_machine.lock() = Some(machine);
+    }
+
+    pub fn init_llm_client(&self, openai_api_key: Option<String>) {
+        let openai_key = openai_api_key
+                .unwrap_or_else(|| "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".to_string());
+
+        let llm_client = LLMClient::new(LLMProvider::OpenAI, openai_key, None, None);
+
+        *self.llm.lock() = Some(llm_client);
     }
 
     pub fn cancel_current_operation(&self) {

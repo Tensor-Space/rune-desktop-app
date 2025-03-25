@@ -4,14 +4,21 @@ import { X, GripVertical } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-type TranscriptionStatus = "idle" | "started" | "completed" | "error";
+type ProcessingStatus =
+  | "idle"
+  | "recording"
+  | "transcribing"
+  | "thinking_action"
+  | "generating_text"
+  | "completed"
+  | "cancelled"
+  | "error";
 
 function MainWindow() {
   const [levels, setLevels] = useState(new Array(8).fill(0));
-  const [hasMicPermission, setHasMicPermission] = useState<boolean | null>(
-    null,
-  );
-  const [, setTranscriptionStatus] = useState<TranscriptionStatus>("idle");
+  const [processingStatus, setProcessingStatus] =
+    useState<ProcessingStatus>("idle");
+  const [dotPosition, setDotPosition] = useState(0);
 
   const stopRecording = useCallback(async () => {
     try {
@@ -22,26 +29,30 @@ function MainWindow() {
     }
   }, []);
 
+  // Animation for the processing states
   useEffect(() => {
-    const requestMic = async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: true,
-        });
-        stream.getTracks().forEach((track) => track.stop());
-        setHasMicPermission(true);
-      } catch (err) {
-        console.error("Error accessing microphone:", err);
-        setHasMicPermission(false);
-      }
-    };
-    requestMic();
+    let animationInterval: number | undefined;
 
-    // Listen for audio levels
+    if (
+      ["transcribing", "thinking_action", "generating_text"].includes(
+        processingStatus,
+      )
+    ) {
+      setLevels(new Array(8).fill(0));
+      animationInterval = window.setInterval(() => {
+        setDotPosition((prev) => (prev + 1) % 6);
+      }, 150); // Speed of the animation
+    }
+
+    return () => {
+      if (animationInterval) clearInterval(animationInterval);
+    };
+  }, [processingStatus]);
+
+  useEffect(() => {
     const unlisten = listen("audio-levels", (event: any) => {
       const newLevels = event.payload as number[];
       if (Array.isArray(newLevels) && newLevels.length === 8) {
-        // Apply some smoothing to prevent jarring transitions
         setLevels((prevLevels) =>
           newLevels.map((level, i) => {
             const smoothingFactor = 0.7;
@@ -53,38 +64,33 @@ function MainWindow() {
       }
     });
 
-    const unlistenTranscriptionStatus = listen(
-      "transcription-status",
+    const unlistenProcessingStatus = listen(
+      "audio-processing-status",
       (event: any) => {
-        setTranscriptionStatus(event.payload as TranscriptionStatus);
+        setProcessingStatus(event.payload as ProcessingStatus);
       },
     );
 
-    // Register Escape key shortcut
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        stopRecording();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-
     return () => {
       unlisten.then((unlistenFn) => unlistenFn());
-      unlistenTranscriptionStatus.then((unlistenFn) => unlistenFn());
-      window.removeEventListener("keydown", handleKeyDown);
+      unlistenProcessingStatus.then((unlistenFn) => unlistenFn());
     };
   }, [stopRecording]);
 
-  if (hasMicPermission === false) {
-    return (
-      <div className="p-2 bg-black rounded-full">
-        <div className="text-white text-sm px-4 py-2">
-          Please enable microphone access to continue
-        </div>
-      </div>
-    );
-  }
+  const getStatusText = () => {
+    switch (processingStatus) {
+      case "transcribing":
+        return "Transcribing...";
+      case "thinking_action":
+        return "Thinking...";
+      case "generating_text":
+        return "Generating...";
+      default:
+        return null;
+    }
+  };
+
+  const statusText = getStatusText();
 
   return (
     <div className="h-screen w-screen bg-transparent">
@@ -97,25 +103,44 @@ function MainWindow() {
           <GripVertical size={18} />
         </button>
 
-        {/* Audio visualizer */}
-        <div className="flex items-center gap-[2px] h-8">
-          {levels.map((level, index) => {
-            // Calculate height based on audio level
-            const height = Math.max(10, Math.min(60, level * 2000));
-
-            return (
+        {["transcribing", "thinking_action", "generating_text"].includes(
+          processingStatus,
+        ) ? (
+          <div className="flex items-center gap-[2px] h-8 relative">
+            {statusText && (
+              <div className="absolute -top-7 left-1/2 transform -translate-x-1/2 whitespace-nowrap text-xs text-gray-300 bg-[#1C1C1C] px-2 py-1 rounded-md">
+                {statusText}
+              </div>
+            )}
+            {Array.from({ length: 6 }).map((_, index) => (
               <div
                 key={index}
-                className="w-[3px] rounded-sm transition-all duration-75 ease-out bg-green-500"
-                style={{
-                  height: `${height}%`,
-                }}
+                className={`w-[6px] h-[6px] rounded-full transition-all duration-100 ${
+                  index === dotPosition
+                    ? "bg-green-500 scale-125"
+                    : "bg-gray-500 opacity-50"
+                }`}
               />
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="flex items-center gap-[2px] h-8">
+            {levels.map((level, index) => {
+              const height = Math.max(10, Math.min(60, level * 500));
 
-        {/* Close button */}
+              return (
+                <div
+                  key={index}
+                  className="w-[3px] rounded-sm transition-all duration-75 ease-out bg-green-500"
+                  style={{
+                    height: `${height}%`,
+                  }}
+                />
+              );
+            })}
+          </div>
+        )}
+
         <button
           onClick={stopRecording}
           className="text-gray-400 hover:text-white p-1"

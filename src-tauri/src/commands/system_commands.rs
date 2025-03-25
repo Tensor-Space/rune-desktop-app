@@ -41,6 +41,28 @@ pub async fn get_settings(app_handle: AppHandle) -> Result<Settings, String> {
 }
 
 #[tauri::command]
+pub fn update_api_key(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    service: String,
+    api_key: String,
+) -> Result<(), String> {
+    let mut settings = state.settings.write();
+
+    settings
+        .update_api_key(&app_handle, service, api_key.clone())
+        .map_err(|e| e.to_string())?;
+
+    state.init_llm_client(Some(api_key.clone()));
+
+    settings
+        .save(&app_handle)
+        .map_err(|e| format!("Failed to persist settings: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn update_shortcuts(
     key: String,
     modifier: String,

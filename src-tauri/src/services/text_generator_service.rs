@@ -5,7 +5,7 @@ pub struct TextGeneratorService;
 
 impl TextGeneratorService {
     pub async fn generate(
-        llm_client: &parking_lot::MutexGuard<'_, LLMClient>,
+        llm_client: &LLMClient,
         app_name: &str,
         text: &str,
     ) -> Result<String, anyhow::Error> {

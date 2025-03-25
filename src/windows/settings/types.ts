@@ -2,6 +2,11 @@ export interface Settings {
   shortcuts: ShortcutConfig;
   audio: AudioConfig;
   window: WindowConfig;
+  api_keys: ApiKeyConfig;
+}
+
+export interface ApiKeyConfig {
+  openai: string | null;
 }
 
 export interface ShortcutConfig {
