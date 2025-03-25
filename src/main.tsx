@@ -6,6 +6,7 @@ import "./global.css";
 import { SettingsWindow } from "./windows/settings/SettingsWindow";
 import { HistoryView } from "./windows/history/HistoryView";
 import MainWindow from "./windows/main/MainWindow";
+import { OnboardingWindow } from "./windows/onboarding/OnboardingWindow";
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
@@ -14,6 +15,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
         <Route path="/" element={<MainWindow />} />
         <Route path="settings" element={<SettingsWindow />} />
         <Route path="history" element={<HistoryView />} />
+        <Route path="onboarding" element={<OnboardingWindow />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>,

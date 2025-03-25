@@ -84,3 +84,42 @@ pub async fn update_shortcuts(
 
     Ok(())
 }
+
+#[tauri::command]
+pub fn update_user_profile(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+    name: Option<String>,
+    email: Option<String>,
+    about: Option<String>,
+) -> Result<(), String> {
+    let mut settings = state.settings.write();
+
+    settings
+        .update_user_profile(&app_handle, name, email, about)
+        .map_err(|e| format!("Failed to update user profile: {}", e))?;
+
+    settings
+        .save(&app_handle)
+        .map_err(|e| format!("Failed to persist settings: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub fn complete_onboarding(
+    app_handle: tauri::AppHandle,
+    state: tauri::State<'_, Arc<AppState>>,
+) -> Result<(), String> {
+    let mut settings = state.settings.write();
+
+    settings
+        .update_onboarding_status(&app_handle, Some("completed".to_string()))
+        .map_err(|e| format!("Failed to update onboarding status: {}", e))?;
+
+    settings
+        .save(&app_handle)
+        .map_err(|e| format!("Failed to persist settings: {}", e))?;
+
+    Ok(())
+}

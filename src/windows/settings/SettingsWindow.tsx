@@ -1,21 +1,16 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import {
-  Shield,
-  Keyboard,
-  Mic,
-  CheckCircle2,
-  Settings as SettingsIcon,
-  Key,
-} from "lucide-react";
+import { Shield, Keyboard, Mic, CheckCircle2, Key, User } from "lucide-react";
 import { Settings } from "./types";
 import { Permissions } from "./pages/Accessibility";
 import { Audio } from "./pages/Microphone";
 import { Shortcuts } from "./pages/Shortcuts";
 import { ApiKeys } from "./pages/ApiKeys";
 import { cn } from "@/lib/utils";
+import { UserProfile } from "./pages/UserProfile";
 
 const sections = [
+  { id: "user_profile", title: "User Profile", icon: User },
   { id: "permissions", title: "Permissions", icon: Shield },
   { id: "microphone", title: "Microphone", icon: Mic },
   { id: "shortcuts", title: "Shortcuts", icon: Keyboard },
@@ -26,7 +21,7 @@ type SectionId = (typeof sections)[number]["id"];
 
 export const SettingsWindow = () => {
   const [currentSection, setCurrentSection] =
-    useState<SectionId>("permissions");
+    useState<SectionId>("user_profile");
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [completedSections, setCompletedSections] = useState<SectionId[]>([]);
@@ -133,6 +128,13 @@ export const SettingsWindow = () => {
             isStepComplete={completedSections.includes("api_keys")}
           />
         );
+      case "user_profile":
+        return (
+          <UserProfile
+            onComplete={() => markSectionComplete("user_profile")}
+            isStepComplete={completedSections.includes("user_profile")}
+          />
+        );
       default:
         return null;
     }
@@ -140,7 +142,7 @@ export const SettingsWindow = () => {
 
   if (isLoading) {
     return (
-      <div className="dark flex h-screen items-center justify-center bg-background">
+      <div className="dark h-screen flex items-center justify-center bg-background">
         <div className="text-lg text-muted-foreground">Loading...</div>
       </div>
     );
@@ -152,15 +154,12 @@ export const SettingsWindow = () => {
       data-tauri-drag-region
     >
       {/* Sidebar */}
-      <div className="w-60 h-full border-r border-neutral-800 bg-muted/30">
+      <div className="w-60 h-full border-r border-neutral-800 bg-neutral-900">
         {/* App title */}
         <div
-          className="p-4 h-14 flex items-center border-b border-neutral-800"
+          className="h-[30px] flex items-center border-b border-neutral-800"
           data-tauri-drag-region
-        >
-          <SettingsIcon className="h-5 w-5 mr-2" />
-          <h1 className="text-md font-medium">Settings</h1>
-        </div>
+        ></div>
 
         {/* Navigation */}
         <nav className="p-2">
@@ -171,16 +170,16 @@ export const SettingsWindow = () => {
                   onClick={() => handleSectionClick(section.id)}
                   className={cn(
                     "w-full flex items-center px-3 py-2 rounded-md text-sm transition-colors",
-                    "hover:bg-primary/10",
+                    "hover:bg-neutral-800",
                     currentSection === section.id
-                      ? "bg-primary/10 text-primary font-medium"
-                      : "text-muted-foreground",
+                      ? "bg-neutral-800 text-neutral-100 font-medium"
+                      : "text-neutral-400",
                   )}
                 >
                   <section.icon className="h-4 w-4 mr-2" />
                   <span>{section.title}</span>
                   {completedSections.includes(section.id) && (
-                    <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-primary" />
+                    <CheckCircle2 className="h-3.5 w-3.5 ml-auto text-green-500" />
                   )}
                 </button>
               </li>
@@ -193,13 +192,9 @@ export const SettingsWindow = () => {
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Header */}
         <div
-          className="h-14 border-b border-neutral-800 flex items-center px-6"
+          className="h-[30px] border-b border-neutral-800 flex items-center px-6"
           data-tauri-drag-region
-        >
-          <h2 className="text-lg font-medium">
-            {sections.find((s) => s.id === currentSection)?.title}
-          </h2>
-        </div>
+        ></div>
 
         {/* Content area */}
         <div className="flex-1 overflow-auto p-6">

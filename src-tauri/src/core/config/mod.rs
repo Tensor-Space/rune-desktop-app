@@ -13,6 +13,16 @@ pub struct Settings {
     pub window: WindowConfig,
     #[serde(default)]
     pub api_keys: ApiKeyConfig,
+    #[serde(default)]
+    pub user_profile: UserProfile,
+    pub onboarding_status: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct UserProfile {
+    pub name: Option<String>,
+    pub email: Option<String>,
+    pub about: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -35,6 +45,8 @@ impl Default for Settings {
                 height: 80.0,
             },
             api_keys: ApiKeyConfig::default(),
+            user_profile: UserProfile::default(),
+            onboarding_status: None,
         }
     }
 }
@@ -148,6 +160,28 @@ impl Settings {
                 )))
             }
         }
+        self.save(app_handle)
+    }
+
+    pub fn update_user_profile(
+        &mut self,
+        app_handle: &AppHandle,
+        name: Option<String>,
+        email: Option<String>,
+        about: Option<String>,
+    ) -> Result<(), ConfigError> {
+        self.user_profile.name = name;
+        self.user_profile.email = email;
+        self.user_profile.about = about;
+        self.save(app_handle)
+    }
+
+    pub fn update_onboarding_status(
+        &mut self,
+        app_handle: &AppHandle,
+        onboarding_status: Option<String>,
+    ) -> Result<(), ConfigError> {
+        self.onboarding_status = onboarding_status;
         self.save(app_handle)
     }
 }
