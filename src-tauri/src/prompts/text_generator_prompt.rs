@@ -1,20 +1,29 @@
+use rune_llm::ToolDefinition;
+use serde_json::json;
+
 pub struct TextGeneratorPrompt;
 
 impl TextGeneratorPrompt {
-    pub fn get_schema() -> &'static str {
-        r#"{
-            "type": "object",
-            "properties": {
-                "output": {
-                    "type": "string"
+    pub fn get_tool() -> ToolDefinition {
+        ToolDefinition {
+            name: "generate_text".to_string(),
+            description: "Generates content based on voice input".to_string(),
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "output": {
+                        "type": "string",
+                        "description": "The generated content"
+                    },
+                    "action_required": {
+                        "type": "boolean",
+                        "description": "Whether the input requires an action"
+                    }
                 },
-                "action_required": {
-                    "type": "boolean"
-                }
-            },
-            "required": ["output", "action_required"],
-            "additionalProperties": false
-        }"#
+                "required": ["output", "action_required"],
+                "additionalProperties": false
+            }),
+        }
     }
 
     pub fn get_prompt(app_name: &str, text: &str) -> String {
@@ -35,7 +44,7 @@ Instructions:
 4. Maintain consistent tone and style suitable for {}
 5. Always provide meaningful, contextual content
 
-Generate the content without any explanations or meta-commentary.
+Generate the content without any explanations or meta-commentary using tool "generate_content".
 Ensure the output is complete and ready for use in {}."#,
             app_name, text, app_name, app_name, app_name
         )

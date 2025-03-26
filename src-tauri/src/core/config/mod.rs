@@ -12,8 +12,6 @@ pub struct Settings {
     pub audio: AudioConfig,
     pub window: WindowConfig,
     #[serde(default)]
-    pub api_keys: ApiKeyConfig,
-    #[serde(default)]
     pub user_profile: UserProfile,
     pub onboarding_status: Option<String>,
 }
@@ -23,11 +21,6 @@ pub struct UserProfile {
     pub name: Option<String>,
     pub email: Option<String>,
     pub about: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ApiKeyConfig {
-    pub openai: Option<String>,
 }
 
 impl Default for Settings {
@@ -44,7 +37,6 @@ impl Default for Settings {
                 width: 400.0,
                 height: 80.0,
             },
-            api_keys: ApiKeyConfig::default(),
             user_profile: UserProfile::default(),
             onboarding_status: None,
         }
@@ -136,30 +128,6 @@ impl Settings {
     ) -> Result<(), ConfigError> {
         self.shortcuts.record_key = Some(key);
         self.shortcuts.record_modifier = Some(modifier);
-        self.save(app_handle)
-    }
-
-    pub fn update_api_key(
-        &mut self,
-        app_handle: &AppHandle,
-        service: String,
-        api_key: String,
-    ) -> Result<(), ConfigError> {
-        match service.as_str() {
-            "openai" => {
-                self.api_keys.openai = if api_key.trim().is_empty() {
-                    None
-                } else {
-                    Some(api_key)
-                };
-            }
-            _ => {
-                return Err(ConfigError::Loading(format!(
-                    "Unknown service: {}",
-                    service
-                )))
-            }
-        }
         self.save(app_handle)
     }
 

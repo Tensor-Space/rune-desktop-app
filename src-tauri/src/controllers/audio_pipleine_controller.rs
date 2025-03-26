@@ -569,6 +569,19 @@ impl AudioPipelineController {
                                         if let Err(e) = TextProcessingService::inject_text(text) {
                                             log::error!("Failed to inject original text: {}", e);
                                         }
+
+                                        if let Err(e) =
+                                            TextTranscriptHistoryService::save_processed_text(
+                                                &app_handle,
+                                                &text,
+                                            )
+                                        {
+                                            log::error!(
+                                                "Failed to save processed text to history: {}",
+                                                e
+                                            );
+                                        }
+
                                         if let Some(window) = app_handle.get_webview_window("main")
                                         {
                                             let _ = window.emit_to(
@@ -576,6 +589,13 @@ impl AudioPipelineController {
                                                 "audio-processing-status",
                                                 format!("error: Processing failed: {}", e),
                                             );
+                                            let _ = window.hide();
+                                        }
+
+                                        if let Some(_history_window) =
+                                            app_handle.get_webview_window("history")
+                                        {
+                                            let _ = app_handle.emit("refresh-history", ());
                                         }
                                     }
                                 }

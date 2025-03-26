@@ -35,10 +35,9 @@ impl AppState {
         *self.state_machine.lock() = Some(machine);
     }
 
-    pub fn init_llm_client(&self, openai_api_key: Option<String>) {
-        let openai_key = openai_api_key.unwrap_or_else(|| "".to_string());
-
-        let llm_client = LLMClient::new(LLMProvider::OpenAI, openai_key, None, None);
+    pub fn init_llm_client(&self) {
+        // We don't need the API key anymore as we're using the Rune API service
+        let llm_client = LLMClient::new(LLMProvider::RuneAPI, None);
 
         *self.llm.lock() = Some(llm_client);
     }

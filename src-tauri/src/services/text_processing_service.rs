@@ -23,11 +23,13 @@ impl TextProcessingService {
         };
 
         let processed_text = if action_required {
+            log::info!("Action required, generating text");
             match &*llm_client {
                 Some(client) => TextGeneratorService::generate(client, app_name, text).await?,
                 None => return Err(anyhow::anyhow!("LLM client not initialized")),
             }
         } else {
+            log::info!("No action required, transforming text");
             match &*llm_client {
                 Some(client) => {
                     TextTransformationService::transform(client, app_name, text).await?

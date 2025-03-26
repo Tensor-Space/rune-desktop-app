@@ -62,7 +62,7 @@ fn setup_settings(app: &TauriApp, state: &Arc<AppState>) -> Result<(), AppError>
 
     state.init_state_machine(app.app_handle().clone());
 
-    state.init_llm_client(settings.api_keys.openai);
+    state.init_llm_client();
 
     Ok(())
 }

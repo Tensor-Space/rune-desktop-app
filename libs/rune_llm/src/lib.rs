@@ -1,18 +1,40 @@
-pub mod anthropic;
-pub mod ollama;
-pub mod openai;
-
 use anyhow::Result;
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
 use tokio::time::timeout;
 
+pub mod rune_api;
+
 #[derive(Debug, Clone)]
 pub enum LLMProvider {
-    OpenAI,
-    Anthropic,
-    Ollama,
+    RuneAPI,
+}
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ToolDefinition {
+    pub name: String,
+    pub description: String,
+    pub parameters: Value,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExecutePromptRequest {
+    pub prompt: String,
+    #[serde(default)]
+    pub tools: Vec<ToolDefinition>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ToolCallResult {
+    pub name: String,
+    pub arguments: Value,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExecutePromptResponse {
+    pub message: String,
+    pub tool_calls: Vec<ToolCallResult>,
 }
 
 #[async_trait]
@@ -20,9 +42,8 @@ pub trait LLMService {
     async fn execute_prompt(
         &self,
         prompt: &str,
-        schema_name: &str,
-        schema: Option<&str>,
-    ) -> Result<Value>;
+        tools: Vec<ToolDefinition>,
+    ) -> Result<ExecutePromptResponse>;
 }
 
 pub struct RetryConfig {
@@ -59,19 +80,9 @@ pub struct LLMClient {
 }
 
 impl LLMClient {
-    pub fn new(
-        provider: LLMProvider,
-        api_key: String,
-        org_id: Option<String>,
-        config: Option<LLMClientConfig>,
-    ) -> Self {
+    pub fn new(provider: LLMProvider, config: Option<LLMClientConfig>) -> Self {
         let service: Box<dyn LLMService + Send + Sync> = match provider {
-            LLMProvider::OpenAI => Box::new(openai::OpenAIService::new(
-                api_key,
-                org_id.unwrap_or_default(),
-            )),
-            LLMProvider::Anthropic => Box::new(anthropic::AnthropicService::new(api_key)),
-            LLMProvider::Ollama => Box::new(ollama::OllamaService::new()),
+            LLMProvider::RuneAPI => Box::new(rune_api::RuneAPIService::new()),
         };
 
         Self {
@@ -134,12 +145,14 @@ impl LLMClient {
     pub async fn execute_prompt(
         &self,
         prompt: &str,
-        schema_name: &str,
-        schema: Option<&str>,
-    ) -> Result<Value> {
+        tools: Vec<ToolDefinition>,
+    ) -> Result<ExecutePromptResponse> {
+        let prompt_string = prompt.to_string();
+        let tools_clone = tools;
+
         self.execute_with_retry(|| async {
             self.service
-                .execute_prompt(prompt, schema_name, schema)
+                .execute_prompt(&prompt_string, tools_clone.clone())
                 .await
         })
         .await

@@ -10,12 +10,30 @@ impl TextGeneratorService {
         text: &str,
     ) -> Result<String, anyhow::Error> {
         let prompt = TextGeneratorPrompt::get_prompt(app_name, text);
-        let schema = TextGeneratorPrompt::get_schema();
+        let tool = TextGeneratorPrompt::get_tool();
 
-        let response = llm_client
-            .execute_prompt(&prompt, "text_generator", Some(schema))
-            .await?;
+        let response = llm_client.execute_prompt(&prompt, vec![tool]).await?;
 
-        Ok(response["output"].as_str().unwrap_or(text).to_string())
+        for tool_call in &response.tool_calls {
+            if tool_call.name == "generate_text" {
+                if let Some(output) = tool_call.arguments.get("output") {
+                    return Ok(output.as_str().unwrap_or(text).to_string());
+                }
+            }
+        }
+
+        if !response.message.is_empty() {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&response.message) {
+                if let Some(output) = value.get("output") {
+                    return Ok(output.as_str().unwrap_or(text).to_string());
+                }
+            }
+        }
+
+        if !response.message.is_empty() {
+            return Ok(response.message);
+        }
+
+        Ok(text.to_string())
     }
 }
