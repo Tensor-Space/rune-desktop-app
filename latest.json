@@ -1,15 +1,15 @@
 {
-  "version": "0.1.10",
+  "version": "0.1.11",
   "notes": "See the assets to download this version and install.",
-  "pub_date": "2025-03-25T11:28:50.323Z",
+  "pub_date": "2025-03-26T11:23:29.118Z",
   "platforms": {
-    "darwin-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUZmlkY2p4TEY2bVMvdWRjOTBhUDRTeVRXNTJNMTZCTk5jemMrdzFJZS9NWW4xTGZuclg1Q3dMQnkxeVhxUFlsU3dHT1A4VkN0eFZ5U25KWEFWVFVqNitQVmg1L1IzYkFrPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzQyOTAyMTA4CWZpbGU6UnVuZS5hcHAudGFyLmd6CmlabEtLc1RrVDkrWWY2S2g5dTZvbEdzUU1RQWdZVFdZWDUvbzhOZ3IrVVkrZmdOaEc5UTA5bkpHc1ZiTjZtQWJYSnZCYmxUS3pqakhac1Bva3hYNkJBPT0K",
-      "url": "https://rune-builds.s3.us-west-2.amazonaws.com/app-v0.1.10/Rune_x64.app.tar.gz"
-    },
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUZmlkY2p4TEY2bWY5SmFZa3puSjBDZG4yTStMZEMxNldSSVQ2S2hCRjZNRU5icEFncmNNS0hBcnpUUk5Mck42SlBwbnI0bE8reGR0UWlNUnFKbWsxVi9xem5ETmtqR3dvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzQyOTAyMTE0CWZpbGU6UnVuZS5hcHAudGFyLmd6Cm9ZQ1VtNUdIb0c5bHdIUUJJVUoxTzZIbjR1T0dwN3AzUUNGV1ptbVQ1b1lmRzJDMGtacWNLSFdDZ3R2VHZEenFzT0Nsb2lZSWRIR3RGRWt4cjhCOERnPT0K",
-      "url": "https://rune-builds.s3.us-west-2.amazonaws.com/app-v0.1.10/Rune_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUZmlkY2p4TEY2bVFuS2hVbHczTHhaYnl2UmhYYk5ScTRPL3BrVTBQZ2NDai9idUphei9iK21tcG5OQUhZd0V4Ty82ZkdSVEdIajhmVW9DQ0lMRzdpa056MU9Rd2VJQUFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzQyOTg4MTQ2CWZpbGU6UnVuZS5hcHAudGFyLmd6CjI0Qzd1SXBNdjJQQzMrcURHKzFHVkJyNTMydC9RemdhSmEvejNMNitQSFU4Z2tXUC9TNmhtZTlTNDNMUWZxMExwZ2Jtd1MyK3AyYUZXQ3ZaWCswakFRPT0K",
+      "url": "https://rune-builds.s3.us-west-2.amazonaws.com/app-v0.1.11/Rune_aarch64.app.tar.gz"
+    },
+    "darwin-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVUZmlkY2p4TEY2bVFoa25UTXYvZzRVUDdTM25YcGRWZVF2LzRTNkRpQVhaNS9TS3RxYmx6TEZhamlMS0JoZllFRDZNTC9UYTVwU0gvS3BwRjYzL2h0NWdET1owcWpPa3dNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzQyOTg4MTkzCWZpbGU6UnVuZS5hcHAudGFyLmd6Cko3UW5Xbm1uSE1QaVozR2pnQ0tPM3owaEdPRGdsb2UvM1JERXJuZi8zVUFvWXlrSHhiamFUbE1BeDJaeXI4ZUYwUXVlSVg1TEQ2N0dQSkppTlNTaEN3PT0K",
+      "url": "https://rune-builds.s3.us-west-2.amazonaws.com/app-v0.1.11/Rune_x64.app.tar.gz"
     }
   }
 }

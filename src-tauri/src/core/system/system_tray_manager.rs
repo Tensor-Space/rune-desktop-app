@@ -108,7 +108,7 @@ impl SystemTrayManager {
 
                 let app_handle = app.clone();
                 tauri::async_runtime::spawn(async move {
-                    match check_for_updates(app_handle.clone()).await {
+                    match check_for_updates(app_handle.clone(), true).await {
                         Ok(_update_found) => {}
                         Err(e) => {
                             log::error!("Failed to check for updates: {}", e);

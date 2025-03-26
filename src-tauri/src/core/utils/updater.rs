@@ -1,6 +1,9 @@
 use tauri_plugin_notification::NotificationExt;
 
-pub async fn check_for_updates(app: tauri::AppHandle) -> Result<bool, Box<dyn std::error::Error>> {
+pub async fn check_for_updates(
+    app: tauri::AppHandle,
+    should_show_no_update_notification: bool,
+) -> Result<bool, Box<dyn std::error::Error>> {
     use tauri_plugin_updater::UpdaterExt;
 
     if let Some(update) = app.updater()?.check().await? {
@@ -38,12 +41,14 @@ pub async fn check_for_updates(app: tauri::AppHandle) -> Result<bool, Box<dyn st
         app.restart();
     } else {
         log::info!("No updates available");
-        app.notification()
-            .builder()
-            .title("Rune")
-            .body("You're already on the latest version")
-            .show()
-            .unwrap_or_else(|e| log::error!("Failed to show notification: {}", e));
+        if should_show_no_update_notification {
+            app.notification()
+                .builder()
+                .title("Rune")
+                .body("You're already on the latest version")
+                .show()
+                .unwrap_or_else(|e| log::error!("Failed to show notification: {}", e));
+        }
         Ok(false)
     }
 }

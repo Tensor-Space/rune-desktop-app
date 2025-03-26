@@ -32,7 +32,7 @@ pub fn setup_app(app: &TauriApp, state: Arc<AppState>) -> Result<(), AppError> {
 
     let handle = app.handle().clone();
     tauri::async_runtime::spawn(async move {
-        check_for_updates(handle).await.unwrap();
+        check_for_updates(handle, false).await.unwrap();
     });
 
     Ok(())
