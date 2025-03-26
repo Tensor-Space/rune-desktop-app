@@ -1,11 +1,10 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Shield, Keyboard, Mic, CheckCircle2, Key, User } from "lucide-react";
+import { Shield, Keyboard, Mic, CheckCircle2, User } from "lucide-react";
 import { Settings } from "./types";
 import { Permissions } from "./pages/Accessibility";
 import { Audio } from "./pages/Microphone";
 import { Shortcuts } from "./pages/Shortcuts";
-import { ApiKeys } from "./pages/ApiKeys";
 import { cn } from "@/lib/utils";
 import { UserProfile } from "./pages/UserProfile";
 
@@ -14,7 +13,6 @@ const sections = [
   { id: "permissions", title: "Permissions", icon: Shield },
   { id: "microphone", title: "Microphone", icon: Mic },
   { id: "shortcuts", title: "Shortcuts", icon: Keyboard },
-  { id: "api_keys", title: "API Keys", icon: Key },
 ];
 
 type SectionId = (typeof sections)[number]["id"];
@@ -56,9 +54,6 @@ export const SettingsWindow = () => {
       }
       if (settings.shortcuts.record_key) {
         completed.push("shortcuts");
-      }
-      if (settings.api_keys.openai) {
-        completed.push("api_keys");
       }
 
       setCompletedSections(completed);
@@ -119,13 +114,6 @@ export const SettingsWindow = () => {
           <Shortcuts
             onComplete={() => markSectionComplete("shortcuts")}
             isStepComplete={completedSections.includes("shortcuts")}
-          />
-        );
-      case "api_keys":
-        return (
-          <ApiKeys
-            onComplete={() => markSectionComplete("api_keys")}
-            isStepComplete={completedSections.includes("api_keys")}
           />
         );
       case "user_profile":

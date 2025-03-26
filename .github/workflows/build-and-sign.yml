@@ -174,3 +174,78 @@ jobs:
               fi
             fi
           fi
+      - name: Create and upload latest.json
+        run: |
+          # Create version directory name
+          VERSION_DIR="app-v${{ env.VERSION }}"
+          CURRENT_DATE=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+
+          # Download existing signatures if available
+          ARM64_SIG_FILE="aarch64_signature.txt"
+          X64_SIG_FILE="x64_signature.txt"
+
+          # Try to download existing signature files first
+          aws s3 cp "s3://rune-builds/$VERSION_DIR/Rune_aarch64.app.tar.gz.sig" "$ARM64_SIG_FILE" || true
+          aws s3 cp "s3://rune-builds/$VERSION_DIR/Rune_x64.app.tar.gz.sig" "$X64_SIG_FILE" || true
+
+          # Determine which architecture this job is processing
+          if [[ "${{ matrix.arch }}" == "arm64" ]]; then
+            # Save ARM64 signature (overwrite any existing download)
+            if [ -n "$SIGNATURE" ]; then
+              echo "$SIGNATURE" > "$ARM64_SIG_FILE"
+              # Upload the signature file for future reference
+              aws s3 cp "$ARM64_SIG_FILE" "s3://rune-builds/$VERSION_DIR/Rune_aarch64.app.tar.gz.sig" --no-progress
+            fi
+          elif [[ "${{ matrix.arch }}" == "x64" ]]; then
+            # Save X64 signature (overwrite any existing download)
+            if [ -n "$SIGNATURE" ]; then
+              echo "$SIGNATURE" > "$X64_SIG_FILE"
+              # Upload the signature file for future reference
+              aws s3 cp "$X64_SIG_FILE" "s3://rune-builds/$VERSION_DIR/Rune_x64.app.tar.gz.sig" --no-progress
+            fi
+          fi
+
+          # Get signatures from downloaded or newly created files
+          ARM64_SIGNATURE=""
+          X64_SIGNATURE=""
+
+          if [ -f "$ARM64_SIG_FILE" ]; then
+            ARM64_SIGNATURE=$(cat "$ARM64_SIG_FILE")
+          fi
+
+          if [ -f "$X64_SIG_FILE" ]; then
+            X64_SIGNATURE=$(cat "$X64_SIG_FILE")
+          fi
+
+          # Only create latest.json if we have both signatures
+          if [ -n "$ARM64_SIGNATURE" ] && [ -n "$X64_SIGNATURE" ]; then
+            cat > latest.json << EOF
+          {
+            "version": "${{ env.VERSION }}",
+            "notes": "See the assets to download this version and install.",
+            "pub_date": "$CURRENT_DATE",
+            "platforms": {
+              "darwin-aarch64": {
+                "signature": "$ARM64_SIGNATURE",
+                "url": "https://rune-builds.s3.us-west-2.amazonaws.com/$VERSION_DIR/Rune_aarch64.app.tar.gz"
+              },
+              "darwin-x86_64": {
+                "signature": "$X64_SIGNATURE",
+                "url": "https://rune-builds.s3.us-west-2.amazonaws.com/$VERSION_DIR/Rune_x64.app.tar.gz"
+              }
+            }
+          }
+          EOF
+
+            # Upload the complete latest.json
+            aws s3 cp latest.json "s3://rune-builds/$VERSION_DIR/latest.json" --no-progress
+
+            # Also place it at the root for auto-updating
+            aws s3 cp latest.json "s3://rune-builds/latest.json" --no-progress
+
+            echo "Successfully created and uploaded latest.json with both signatures"
+          else
+            echo "Not creating latest.json yet - missing signatures"
+            echo "ARM64 signature present: $([[ -n "$ARM64_SIGNATURE" ]] && echo 'Yes' || echo 'No')"
+            echo "X64 signature present: $([[ -n "$X64_SIGNATURE" ]] && echo 'Yes' || echo 'No')"
+          fi
