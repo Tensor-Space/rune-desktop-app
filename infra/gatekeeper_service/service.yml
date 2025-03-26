@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gatekeeper-service
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-backend-protocol: tcp
+    service.beta.kubernetes.io/aws-load-balancer-ssl-ports: "443"
+    service.beta.kubernetes.io/aws-load-balancer-ssl-cert: arn:aws:acm:us-west-2:381492239882:certificate/73fd1fb7-8c95-4e56-9ef3-56e8edc6cd30
+  labels:
+    app: gatekeeper-service
+spec:
+  type: LoadBalancer
+  selector:
+    app: rune
+    name: rune-gatekeeper-service-pod
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 8000
+    - name: https
+      protocol: TCP
+      port: 443
+      targetPort: 8000

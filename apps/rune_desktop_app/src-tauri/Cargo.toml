@@ -28,8 +28,8 @@ hound = "3.5.1"
 chrono = "0.4.39"
 cocoa = "0.25.0"
 tauri-plugin-global-shortcut = { version = "2" }
-rune_whisper_local = { path = "../libs/rune_whisper_local" }
-rune_llm = { path = "../libs/rune_llm" }
+rune_whisper_local = { path = "../../../libs/rune_whisper_local" }
+rune_llm = { path = "../../../libs/rune_llm" }
 wav = "1.0.1"
 anyhow = "1.0.95"
 rubato = { version = "0.16.1", features = ["fft_resampler"] }

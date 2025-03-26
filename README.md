@@ -1,2 +1,1 @@
-# runeapp
-Context + Dictation + Actions in an app. 
+# Rune App

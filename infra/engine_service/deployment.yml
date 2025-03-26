@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rune-engine-service-deployment
+  labels:
+    name: rune-engine-service-deployment
+    app: rune
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rune
+  template:
+    metadata:
+      name: rune-engine-service-pod
+      labels:
+        app: rune
+        name: rune-engine-service-pod
+    spec:
+      containers:
+        - name: rune-engine-service-pod
+          image: 381492239882.dkr.ecr.us-west-2.amazonaws.com/rune/engine-service:latest
+          ports:
+            - containerPort: 8000
+          env:
+            - name: PORT
+              value: "8000"
+          envFrom:
+            - secretRef:
+                name: rune-engine-service-secrets
+            - configMapRef:
+                name: rune-engine-service-config

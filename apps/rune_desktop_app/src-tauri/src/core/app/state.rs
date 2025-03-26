@@ -36,8 +36,7 @@ impl AppState {
     }
 
     pub fn init_llm_client(&self, openai_api_key: Option<String>) {
-        let openai_key = openai_api_key
-                .unwrap_or_else(|| "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".to_string());
+        let openai_key = openai_api_key.unwrap_or_else(|| "".to_string());
 
         let llm_client = LLMClient::new(LLMProvider::OpenAI, openai_key, None, None);
 
