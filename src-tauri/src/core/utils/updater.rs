@@ -12,7 +12,7 @@ pub async fn check_for_updates(
         app.notification()
             .builder()
             .title("Rune Update")
-            .body(&format!("Downloading update {}...", update.current_version))
+            .body(&format!("Downloading update {}...", update.version))
             .show()?;
 
         update
