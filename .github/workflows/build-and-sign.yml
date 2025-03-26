@@ -2,6 +2,8 @@ name: "publish"
 
 on:
   push:
+    paths:
+      - "apps/rune_desktop_app/**"
     branches:
       - release
 
@@ -50,11 +52,11 @@ jobs:
 
       - name: Download models from AWS S3
         run: |
-          mkdir -p src-tauri/models
-          aws s3 sync s3://rune-models/ src-tauri/models/ --no-progress
+          mkdir -p apps/rune_desktop_app/src-tauri/models
+          aws s3 sync s3://rune-models/ apps/rune_desktop_app/src-tauri/models/ --no-progress
 
       - name: install frontend dependencies
-        run: pnpm install
+        run: cd apps/rune_desktop_app && pnpm install
 
       - name: import Apple Developer Certificate
         env:
@@ -62,6 +64,7 @@ jobs:
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
         run: |
+          cd apps/rune_desktop_app
           echo $APPLE_CERTIFICATE | base64 --decode > certificate.p12
           security create-keychain -p "$KEYCHAIN_PASSWORD" build.keychain
           security default-keychain -s build.keychain
@@ -73,6 +76,7 @@ jobs:
 
       - name: verify certificate
         run: |
+          cd apps/rune_desktop_app
           CERT_INFO=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application")
           CERT_ID=$(echo "$CERT_INFO" | awk -F'"' '{print $2}')
           echo "CERT_ID=$CERT_ID" >> $GITHUB_ENV
@@ -81,6 +85,7 @@ jobs:
       - name: Extract app version
         id: app_version
         run: |
+          cd apps/rune_desktop_app
           VERSION=$(grep -m 1 '"version"' src-tauri/tauri.conf.json | awk -F: '{ print $2 }' | sed 's/[",]//g' | tr -d '[:space:]')
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
@@ -99,6 +104,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          projectPath: apps/rune_desktop_app
           tagName: app-v__VERSION__
           releaseName: "Rune App __VERSION__"
           releaseBody: "See the assets to download this version and install."

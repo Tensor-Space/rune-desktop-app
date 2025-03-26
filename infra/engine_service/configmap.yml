@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: rune-engine-service-config
+data:
+  APP_ENVIRONMENT: "prod"
+  AWS_REGION: "us-west-2"
+  DATABASE_NAME: "RuneAI"
+  PORT: "8000"
