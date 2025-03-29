@@ -6,6 +6,7 @@ use crate::{
     core::{config::Settings, error::AppError},
 };
 pub use state::AppState;
+use tauri::Manager;
 use std::sync::Arc;
 
 pub struct App {
@@ -29,8 +30,35 @@ impl App {
             .plugin(tauri_plugin_store::Builder::default().build())
             .plugin(tauri_plugin_fs::init())
             .plugin(tauri_plugin_opener::init())
-            .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {
-                log::info!("App already running, skipping creation of new instance");
+            .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+                log::info!("App already running - request to show window received");
+                
+                let app_handle = app.app_handle();
+                
+                // When clicking on dock icon or launching app again, show settings window
+                if let Some(window) = app_handle.get_webview_window("settings") {
+                    match window.is_visible() {
+                        Ok(is_visible) => {
+                            if is_visible {
+                                log::info!("Window already visible, focusing");
+                                let _ = window.show();
+                                let _ = window.set_focus();
+                            } else {
+                                log::info!("Window hidden, making visible");
+                                let _ = window.show();
+                                let _ = window.unminimize();
+                                let _ = window.set_focus();
+                            }
+                        },
+                        Err(e) => {
+                            log::error!("Error checking window visibility: {}", e);
+                            let _ = window.show();
+                            let _ = window.set_focus();
+                        }
+                    }
+                } else {
+                    log::error!("Settings window not found");
+                }
             }))
             .invoke_handler(tauri::generate_handler![
                 // Audio commands
@@ -72,7 +100,7 @@ impl App {
                     let _ = autostart_manager.disable();
                 }
 
-                app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+                app.set_activation_policy(tauri::ActivationPolicy::Regular);
                 setup::setup_app(app, self.state.clone())?;
 
                 Ok(())

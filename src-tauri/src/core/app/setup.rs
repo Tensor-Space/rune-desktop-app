@@ -31,6 +31,13 @@ pub fn setup_app(app: &TauriApp, state: Arc<AppState>) -> Result<(), AppError> {
     check_onboarding_status(app, state.clone())?;
 
     let handle = app.handle().clone();
+    if let Some(window) = handle.get_webview_window("settings") {
+        let _ = window.set_focus();
+        let _ = window.show();
+    } else {
+        error!("Failed to get settings window");
+    }
+
     tauri::async_runtime::spawn(async move {
         check_for_updates(handle, false).await.unwrap();
     });
@@ -86,9 +93,18 @@ fn configure_windows(app: &TauriApp) -> Result<(), AppError> {
     if let Some(settings_window) = app.get_webview_window("settings") {
         let settings_window_clone = settings_window.clone();
         settings_window.on_window_event(move |event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = settings_window_clone.hide();
+            match event {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    log::info!("Close requested for settings window");
+                    api.prevent_close();
+                    
+                    if let Err(e) = settings_window_clone.minimize() {
+                        log::error!("Failed to minimize window: {}", e);
+                    } else {
+                        log::info!("Window successfully minimized");
+                    }
+                },
+                _ => {}
             }
         });
     } else {
@@ -169,7 +185,6 @@ fn setup_event_listeners(app: &TauriApp, state: Arc<AppState>) -> Result<(), App
             let _ = window.close();
         }
     });
-
     Ok(())
 }
 
