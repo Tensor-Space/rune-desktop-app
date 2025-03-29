@@ -32,10 +32,24 @@ pub fn setup_app(app: &TauriApp, state: Arc<AppState>) -> Result<(), AppError> {
 
     let handle = app.handle().clone();
     if let Some(window) = handle.get_webview_window("settings") {
-        let _ = window.set_focus();
-        let _ = window.show();
+        log::info!("Attempting to focus and show settings window");
+        match window.set_focus() {
+            Ok(_) => log::info!("Successfully set focus on settings window"),
+            Err(e) => log::error!("Failed to set focus on settings window: {}", e),
+        };
+        
+        match window.show() {
+            Ok(_) => log::info!("Successfully showed settings window"),
+            Err(e) => log::error!("Failed to show settings window: {}", e),
+        };
+        
+        // Add check for window visibility state
+        match window.is_visible() {
+            Ok(visible) => log::info!("Settings window visibility status: {}", visible),
+            Err(e) => log::error!("Failed to check window visibility: {}", e),
+        }
     } else {
-        error!("Failed to get settings window");
+        log::error!("Failed to get settings window");
     }
 
     tauri::async_runtime::spawn(async move {
